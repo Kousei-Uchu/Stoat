@@ -317,6 +317,8 @@ const downloader = {
   search: (query: string): Promise<any[]> => ipcRenderer.invoke('app/downloader/search', query),
   getYtdlpStatus: (): Promise<{ ready: boolean; downloading: boolean; error: string | null }> => ipcRenderer.invoke('app/downloader/ytdlp-status'),
   getFormats: (): Promise<Record<string, { label: string; ext: string }>> => ipcRenderer.invoke('app/downloader/formats'),
+  resolveSpotify: (url: string): Promise<any[]> => ipcRenderer.invoke('app/downloader/resolve-spotify', url),
+  isSpotifyUrl: (url: string): Promise<boolean> => ipcRenderer.invoke('app/downloader/is-spotify', url),
   onProgress: (callback: (_: unknown, data: any) => void) => ipcRenderer.on('downloader/progress', callback),
   removeOnProgress: (callback: (_: unknown, data: any) => void) => ipcRenderer.removeListener('downloader/progress', callback),
   onYtdlpStatus: (callback: (_: unknown, data: any) => void) => ipcRenderer.on('downloader/ytdlp-status', callback),

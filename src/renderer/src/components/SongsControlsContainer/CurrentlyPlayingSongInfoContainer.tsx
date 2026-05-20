@@ -168,13 +168,8 @@ const CurrentlyPlayingSongInfoContainer = () => {
         class: 'edit',
         iconName: 'edit',
         handlerFunction: () => {
-          // TODO: Implement song tags editor page navigation
-          // changeCurrentActivePage('SongTagsEditor', {
-          //   songId,
-          //   songArtworkPath: artworkPath,
-          //   songPath: path,
-          //   isKnownSource
-          // });
+          if (currentSongData.songId)
+            navigate({ to: '/main-player/songs/edit/$songId', params: { songId: String(currentSongData.songId) } });
         }
       },
       {

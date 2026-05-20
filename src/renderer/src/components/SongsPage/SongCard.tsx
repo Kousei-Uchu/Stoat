@@ -382,12 +382,7 @@ const SongCard = (props: SongCardProp) => {
         class: 'edit',
         iconName: 'edit',
         handlerFunction: () => {
-          // TODO: Implement song tags editor page navigation
-          // changeCurrentActivePage('SongTagsEditor', {
-          //   songId,
-          //   songArtworkPath: artworkPath,
-          //   songPath: path
-          // });
+          navigate({ to: '/main-player/songs/edit/$songId', params: { songId: String(songId) } });
         },
         isDisabled: isMultipleSelectionsEnabled
       },

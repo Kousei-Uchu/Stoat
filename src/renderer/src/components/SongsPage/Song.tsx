@@ -393,12 +393,7 @@ const Song = forwardRef((props: SongProp, ref: ForwardedRef<HTMLDivElement>) => 
         class: 'edit',
         iconName: 'edit',
         handlerFunction: () => {
-          // TODO: Implement song tags editor navigation
-          // changeCurrentActivePage('SongTagsEditor', {
-          //   songId,
-          //   songArtworkPath: artworkPaths.artworkPath,
-          //   songPath: path
-          // });
+          navigate({ to: '/main-player/songs/edit/$songId', params: { songId: String(songId) } });
         },
         isDisabled: isMultipleSelectionsEnabled
       },

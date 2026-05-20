@@ -5,6 +5,7 @@ import { lazy, useCallback, useContext, useEffect, useMemo, useState } from 'rea
 import { Trans, useTranslation } from 'react-i18next';
 
 import { appPreferences } from '../../../../../package.json';
+import { useRouter } from '@tanstack/react-router';
 import { AppUpdateContext } from '../../contexts/AppUpdateContext';
 import useNetworkConnectivity from '../../hooks/useNetworkConnectivity';
 import hasDataChanged, { isDataChanged } from '../../utils/hasDataChanged';
@@ -50,6 +51,7 @@ type GenreResult = { genreId?: number; name: string; artworkPath?: string };
 const { metadataEditingSupportedExtensions } = appPreferences;
 
 function SongTagsEditingPage() {
+  const { history } = useRouter();
   const currentlyActivePage = useStore(store, (state) => state.currentlyActivePage);
   const currentSongData = useStore(store, (state) => state.currentSongData);
 
@@ -551,9 +553,7 @@ function SongTagsEditingPage() {
               label={t('common.goBack')}
               iconName="arrow_back"
               className="mt-4"
-              clickHandler={() => {
-                // TODO: Implement page history back navigation.
-              }}
+              clickHandler={() => {history.back()}}
             />
           </div>
         )}

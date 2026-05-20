@@ -41,6 +41,14 @@ const Sidebar = memo(() => {
           isActive: false
         },
         {
+          to: '/main-player/dj',
+          id: 'DjMode',
+          parentClassName: 'dj',
+          icon: 'radio',
+          content: t('sideBar.djMode') || 'DJ Mode',
+          isActive: false
+        },
+        {
           to: '/main-player/songs',
           id: 'Songs',
           parentClassName: 'songs',

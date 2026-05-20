@@ -6,11 +6,15 @@
  *
  * Search uses YouTube's internal InnerTube API directly from the main process
  * (no CORS issues, no API key required).
+ *
+ * Spotify URL support: resolves Spotify tracks/albums/playlists/artists
+ * via the public Spotify metadata API (no login required) then smart-matches
+ * on YouTube Music using spotdl-style confidence scoring to avoid wrong versions.
  */
 
 import { app, BrowserWindow } from 'electron';
 import { existsSync, mkdirSync, readdirSync, chmodSync, unlinkSync } from 'node:fs';
-import { join, basename, dirname } from 'node:path';
+import { join, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import https from 'node:https';
 
@@ -28,8 +32,32 @@ export interface DownloadOptions {
   title?: string;
   artist?: string;
   album?: string;
+  albumArtist?: string;
+  year?: string;
+  trackNumber?: string;
+  genres?: string[];
+  // Batch download
+  isBatch?: boolean;
+  batchId?: string;
   // Extra options
   downloadLyrics?: boolean;
+}
+
+export interface SpotifyTrackMeta {
+  id: string;
+  title: string;
+  artist: string;
+  artistIds: string[];
+  album: string;
+  albumArtist: string;
+  year: string;
+  trackNumber: string;
+  discNumber: string;
+  duration: number; // ms
+  isrc?: string;
+  explicit: boolean;
+  genres: string[];
+  albumCover?: string;
 }
 
 export interface SearchResult {
@@ -40,8 +68,16 @@ export interface SearchResult {
   album: string;
   duration: number; // seconds
   thumbnail: string;
-  source: 'ytm' | 'yt';
+  source: 'ytm' | 'yt' | 'spotify';
   url: string;
+  // Spotify enrichment
+  spotifyMeta?: SpotifyTrackMeta;
+  matchScore?: number;
+}
+
+export interface BatchDownloadItem {
+  url: string;
+  meta: SpotifyTrackMeta;
 }
 
 export interface YtDlpStatus {
@@ -60,6 +96,10 @@ interface DownloadTask {
   outputPath?: string;
   lrcPath?: string;
   process?: import('child_process').ChildProcessWithoutNullStreams;
+  // Batch context
+  batchId?: string;
+  batchTotal?: number;
+  batchCurrent?: number;
 }
 
 // ─── Format definitions ───────────────────────────────────────────────────────
@@ -89,9 +129,19 @@ const YT_CONTEXT = {
   client: { clientName: 'WEB', clientVersion: '2.20240101.00.00', hl: 'en', gl: 'US' },
 };
 
+// ─── Spotify constants ────────────────────────────────────────────────────────
+
+// Spotify's public token endpoint used by the web player (no login required)
+const SPOTIFY_TOKEN_URL = 'https://open.spotify.com/get_access_token?reason=transport&productType=web_player';
+const SPOTIFY_API_BASE = 'https://api.spotify.com/v1';
+
+let spotifyToken: string | null = null;
+let spotifyTokenExpiry = 0;
+
 // ─── State ────────────────────────────────────────────────────────────────────
 
 const downloadTasks = new Map<string, DownloadTask>();
+const batchQueues = new Map<string, BatchDownloadItem[]>();
 
 let ytdlpBinaryPath: string | null = null;
 let ytdlpStatus: YtDlpStatus = { ready: false, downloading: false, error: null };
@@ -106,7 +156,7 @@ function httpsGet(
   return new Promise((resolve, reject) => {
     const req = https.get(
       url,
-      { headers: { 'User-Agent': 'Stoat/1.0', ...headers } },
+      { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Stoat/1.0)', ...headers } },
       (res) => {
         if (
           res.statusCode &&
@@ -151,7 +201,7 @@ function httpsPost(
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(data),
-          'User-Agent': 'Stoat/1.0',
+          'User-Agent': 'Mozilla/5.0 (compatible; Stoat/1.0)',
           ...headers,
         },
       },
@@ -182,6 +232,9 @@ function sendProgress(task: DownloadTask, payload: Record<string, unknown>) {
     status: task.status,
     progress: task.progress,
     error: task.error,
+    batchId: task.batchId,
+    batchTotal: task.batchTotal,
+    batchCurrent: task.batchCurrent,
     ...payload,
   });
 }
@@ -296,27 +349,326 @@ export function setMainWindowRef(win: BrowserWindow) {
   mainWindowRef = win;
 }
 
-// ─── InnerTube search ─────────────────────────────────────────────────────────
+// ─── Spotify API helpers ──────────────────────────────────────────────────────
+
+/** Get a public Spotify access token (no login required — same token web player uses) */
+async function getSpotifyToken(): Promise<string> {
+  const now = Date.now();
+  if (spotifyToken && now < spotifyTokenExpiry - 30_000) return spotifyToken;
+
+  try {
+    const res = await httpsGet(SPOTIFY_TOKEN_URL, {
+      'Accept': 'application/json',
+      'Referer': 'https://open.spotify.com/',
+      'Origin': 'https://open.spotify.com',
+    });
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      const data = JSON.parse(res.body);
+      spotifyToken = data.accessToken as string;
+      // expirationTimestamp is in seconds from epoch
+      spotifyTokenExpiry = (data.accessTokenExpirationTimestampMs as number) || (now + 3600_000);
+      return spotifyToken!;
+    }
+  } catch { /* fall through */ }
+
+  throw new Error('Could not obtain Spotify access token. Try again later.');
+}
+
+async function spotifyGet(path: string): Promise<any> {
+  const token = await getSpotifyToken();
+  let url = path.startsWith('http') ? path : `${SPOTIFY_API_BASE}${path}`;
+  // Follow pagination automatically for 'next' fields
+  const res = await httpsGet(url, { Authorization: `Bearer ${token}` });
+  if (res.statusCode === 401) {
+    // Token expired — refresh once
+    spotifyToken = null;
+    const token2 = await getSpotifyToken();
+    const res2 = await httpsGet(url, { Authorization: `Bearer ${token2}` });
+    return JSON.parse(res2.body);
+  }
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    throw new Error(`Spotify API ${res.statusCode}: ${path}`);
+  }
+  return JSON.parse(res.body);
+}
+
+/** Parse a Spotify URL and return { type, id } */
+export function parseSpotifyUrl(url: string): { type: 'track' | 'album' | 'playlist' | 'artist'; id: string } | null {
+  try {
+    const u = new URL(url);
+    if (!u.hostname.includes('spotify.com')) return null;
+    const parts = u.pathname.split('/').filter(Boolean);
+    // /track/xxx, /album/xxx, /playlist/xxx, /artist/xxx
+    if (parts.length >= 2) {
+      const type = parts[0] as 'track' | 'album' | 'playlist' | 'artist';
+      if (['track', 'album', 'playlist', 'artist'].includes(type)) {
+        return { type, id: parts[1] };
+      }
+    }
+    return null;
+  } catch { return null; }
+}
+
+export function isSpotifyUrl(url: string): boolean {
+  return parseSpotifyUrl(url) !== null;
+}
+
+/** Fetch a single Spotify track and its album/artist genres */
+async function fetchSpotifyTrack(trackId: string): Promise<SpotifyTrackMeta> {
+  const track = await spotifyGet(`/tracks/${trackId}`);
+  const albumId = track.album?.id;
+  let genres: string[] = [];
+
+  // Get genres from album + first artist (Spotify attaches genres to artists/albums)
+  try {
+    const [albumData, artistData] = await Promise.all([
+      albumId ? spotifyGet(`/albums/${albumId}`) : Promise.resolve(null),
+      track.artists?.[0]?.id ? spotifyGet(`/artists/${track.artists[0].id}`) : Promise.resolve(null),
+    ]);
+    genres = [
+      ...(albumData?.genres ?? []),
+      ...(artistData?.genres ?? []),
+    ].filter((g, i, arr) => arr.indexOf(g) === i);
+  } catch { /* genres optional */ }
+
+  return {
+    id: track.id,
+    title: track.name,
+    artist: track.artists?.map((a: any) => a.name).join(', ') ?? '',
+    artistIds: track.artists?.map((a: any) => a.id) ?? [],
+    album: track.album?.name ?? '',
+    albumArtist: track.album?.artists?.[0]?.name ?? '',
+    year: (track.album?.release_date ?? '').slice(0, 4),
+    trackNumber: String(track.track_number ?? ''),
+    discNumber: String(track.disc_number ?? ''),
+    duration: track.duration_ms,
+    isrc: track.external_ids?.isrc,
+    explicit: track.explicit ?? false,
+    genres,
+    albumCover: track.album?.images?.[0]?.url,
+  };
+}
+
+/** Fetch all tracks from a Spotify album */
+async function fetchSpotifyAlbumTracks(albumId: string): Promise<SpotifyTrackMeta[]> {
+  const album = await spotifyGet(`/albums/${albumId}`);
+  const genres: string[] = album.genres ?? [];
+  const albumName: string = album.name ?? '';
+  const albumArtist: string = album.artists?.[0]?.name ?? '';
+  const year: string = (album.release_date ?? '').slice(0, 4);
+  const coverUrl: string = album.images?.[0]?.url ?? '';
+
+  const tracks: SpotifyTrackMeta[] = [];
+  let page: any = album.tracks;
+
+  while (page) {
+    for (const t of page.items ?? []) {
+      tracks.push({
+        id: t.id,
+        title: t.name,
+        artist: t.artists?.map((a: any) => a.name).join(', ') ?? albumArtist,
+        artistIds: t.artists?.map((a: any) => a.id) ?? [],
+        album: albumName,
+        albumArtist,
+        year,
+        trackNumber: String(t.track_number ?? ''),
+        discNumber: String(t.disc_number ?? ''),
+        duration: t.duration_ms,
+        isrc: t.external_ids?.isrc,
+        explicit: t.explicit ?? false,
+        genres,
+        albumCover: coverUrl,
+      });
+    }
+    if (page.next) {
+      const nextPage = await spotifyGet(page.next);
+      page = nextPage;
+    } else {
+      page = null;
+    }
+  }
+
+  return tracks;
+}
+
+/** Fetch all tracks from a Spotify playlist */
+async function fetchSpotifyPlaylistTracks(playlistId: string): Promise<SpotifyTrackMeta[]> {
+  const tracks: SpotifyTrackMeta[] = [];
+  let url: string | null = `/playlists/${playlistId}/tracks?limit=100`;
+
+  while (url) {
+    const page: any = await spotifyGet(url);
+    for (const item of page.items ?? []) {
+      const t = item.track;
+      if (!t || t.type !== 'track') continue;
+      // fetch genres from artist (may be slow for large playlists — skip for perf)
+      tracks.push({
+        id: t.id,
+        title: t.name,
+        artist: t.artists?.map((a: any) => a.name).join(', ') ?? '',
+        artistIds: t.artists?.map((a: any) => a.id) ?? [],
+        album: t.album?.name ?? '',
+        albumArtist: t.album?.artists?.[0]?.name ?? '',
+        year: (t.album?.release_date ?? '').slice(0, 4),
+        trackNumber: String(t.track_number ?? ''),
+        discNumber: String(t.disc_number ?? ''),
+        duration: t.duration_ms,
+        isrc: t.external_ids?.isrc,
+        explicit: t.explicit ?? false,
+        genres: [],
+        albumCover: t.album?.images?.[0]?.url,
+      });
+    }
+    url = page.next ?? null;
+  }
+
+  return tracks;
+}
+
+/** Fetch all albums for a Spotify artist, then all tracks */
+async function fetchSpotifyArtistTracks(artistId: string): Promise<SpotifyTrackMeta[]> {
+  const tracks: SpotifyTrackMeta[] = [];
+  let url: string | null = `/artists/${artistId}/albums?include_groups=album,single&limit=50`;
+
+  const albumIds: string[] = [];
+  while (url) {
+    const page: any = await spotifyGet(url);
+    for (const a of page.items ?? []) albumIds.push(a.id);
+    url = page.next ?? null;
+  }
+
+  for (const albumId of albumIds) {
+    try {
+      const albumTracks = await fetchSpotifyAlbumTracks(albumId);
+      tracks.push(...albumTracks);
+    } catch { /* skip failed album */ }
+  }
+
+  // Deduplicate by ISRC if present, else by title+artist
+  const seen = new Set<string>();
+  return tracks.filter((t) => {
+    const key = t.isrc ?? `${t.title.toLowerCase()}::${t.artist.toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// ─── Smart YouTube Music matching (spotdl-style) ──────────────────────────────
 
 /**
- * Parse column 2 runs from a YTM musicResponsiveListItemRenderer.
- * Runs look like: ["Artist", " • ", "Album", " • ", "2023"]
- * or just:        ["Artist", " • ", "2023"]
- * Separators are " • " (with spaces) or "•".
+ * Normalise a string for comparison: lowercase, remove punctuation, collapse whitespace.
  */
+function normaliseStr(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/['"''""]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Compute word-overlap Jaccard similarity between two strings */
+function jaccardSim(a: string, b: string): number {
+  const setA = new Set(normaliseStr(a).split(' ').filter(Boolean));
+  const setB = new Set(normaliseStr(b).split(' ').filter(Boolean));
+  if (setA.size === 0 && setB.size === 0) return 1;
+  let inter = 0;
+  setA.forEach((w) => { if (setB.has(w)) inter++; });
+  return inter / (setA.size + setB.size - inter);
+}
+
+/** Duration similarity: 1.0 if within 2 s, 0 if off by > 10 s */
+function durationScore(ytSec: number, spotMs: number): number {
+  if (!ytSec || !spotMs) return 0.5;
+  const diff = Math.abs(ytSec - spotMs / 1000);
+  if (diff <= 2) return 1.0;
+  if (diff <= 5) return 0.8;
+  if (diff <= 10) return 0.5;
+  return 0;
+}
+
+/**
+ * Penalty for "bad" version keywords in a YTM result title that aren't in the Spotify title.
+ * This catches instrumentals, remixes, covers, sped up, nightcore, etc.
+ */
+const BAD_VERSION_KEYWORDS = [
+  'instrumental', 'karaoke', 'cover', 'tribute', 'nightcore',
+  'sped up', 'slowed', 'reverb', 'lofi', 'lo-fi', 'remix',
+  'mashup', 'piano version', 'acoustic', 'live', 'version', 'edit',
+  'extended', 'radio edit', 'remaster', 'demo', 'reprise',
+];
+
+function badVersionPenalty(ytTitle: string, spotTitle: string): number {
+  const ytNorm = normaliseStr(ytTitle);
+  const spNorm = normaliseStr(spotTitle);
+  let penalty = 0;
+  for (const kw of BAD_VERSION_KEYWORDS) {
+    if (ytNorm.includes(kw) && !spNorm.includes(kw)) {
+      penalty += 0.25;
+    }
+  }
+  return Math.min(penalty, 1.0);
+}
+
+/**
+ * Score a YTM search result against known Spotify metadata.
+ * Returns a score 0–1 (higher = better match).
+ */
+function scoreYtmResult(ytm: SearchResult, meta: SpotifyTrackMeta): number {
+  const titleSim = jaccardSim(ytm.title, meta.title);
+  const artistSim = jaccardSim(ytm.artist, meta.artist);
+  const albumSim = ytm.album ? jaccardSim(ytm.album, meta.album) : 0.3;
+  const durScore = durationScore(ytm.duration, meta.duration);
+  const penalty = badVersionPenalty(ytm.title, meta.title);
+
+  // Weights: title 35%, artist 30%, album 10%, duration 25%
+  const raw = titleSim * 0.35 + artistSim * 0.30 + albumSim * 0.10 + durScore * 0.25;
+
+  // Source bonus: YTM results are more likely to be official
+  const srcBonus = ytm.source === 'ytm' ? 0.05 : 0;
+
+  return Math.max(0, Math.min(1, raw + srcBonus - penalty));
+}
+
+/**
+ * Find the best YouTube URL for a Spotify track using smart matching.
+ * Returns the best VideoId or null if no confident match.
+ */
+export async function findBestYouTubeMatch(meta: SpotifyTrackMeta): Promise<SearchResult | null> {
+  const query = `${meta.title} ${meta.artist}`;
+
+  // Search YTM first (most likely to have official versions)
+  const ytmResults = await searchYouTubeMusic(query);
+  const ytResults = ytmResults.length < 3 ? await searchYouTube(query) : [];
+  const candidates = [...ytmResults, ...ytResults];
+
+  if (candidates.length === 0) return null;
+
+  // Score each candidate
+  const scored = candidates.map((r) => ({ ...r, matchScore: scoreYtmResult(r, meta) }));
+  scored.sort((a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0));
+
+  const best = scored[0];
+  // Require a minimum confidence of 0.35
+  if ((best.matchScore ?? 0) < 0.35) return null;
+
+  return best;
+}
+
+// ─── InnerTube search ─────────────────────────────────────────────────────────
+
 function parseYTMColumn2(runs: any[]): { artist: string; album: string } {
-  // Collect the non-separator text segments in order
   const SEP = /^\s*•\s*$/;
   const segments: string[] = runs
     .map((r: any) => (r.text as string) ?? '')
     .filter((t) => !SEP.test(t) && t.trim().length > 0);
 
-  // Heuristic: last segment that's a 4-digit year is the year
   const yearRe = /^\d{4}$/;
   const withoutYear = segments.filter((s) => !yearRe.test(s.trim()));
 
   const artist = withoutYear[0] ?? '';
-  const album  = withoutYear[1] ?? '';   // empty string when not present
+  const album  = withoutYear[1] ?? '';
   return { artist, album };
 }
 
@@ -348,7 +700,6 @@ function parseYTMResults(data: any): SearchResult[] {
             ?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint
             ?.videoId as string | undefined;
 
-        // Duration from fixedColumns if present
         const fixedCols = r.fixedColumns ?? [];
         const durText =
           fixedCols[0]?.musicResponsiveListItemFixedColumnRenderer?.text
@@ -472,21 +823,31 @@ export async function search(query: string): Promise<SearchResult[]> {
   return searchYouTube(query);
 }
 
-// ─── LRC conversion ───────────────────────────────────────────────────────────
-//
-// yt-dlp's --convert-subs lrc support is inconsistent across versions and
-// subtitle sources. Instead we grab the raw subtitle file (srv3 > ttml > vtt)
-// and convert it ourselves — this is reliable on all yt-dlp versions.
-//
-// srv3 (YouTube's native XML format) carries millisecond timestamps and is the
-// richest source. We fall back to VTT if srv3/ttml aren't available.
-
 /**
- * Convert a WebVTT subtitle string to LRC format.
- * VTT cues look like:
- *   00:01.000 --> 00:04.000
- *   Lyric line here
+ * Resolve a Spotify URL to a list of track metadata objects.
+ * For a track URL: returns a single-item array.
+ * For album/playlist/artist: returns all tracks.
  */
+export async function resolveSpotifyUrl(url: string): Promise<SpotifyTrackMeta[]> {
+  const parsed = parseSpotifyUrl(url);
+  if (!parsed) throw new Error('Not a valid Spotify URL');
+
+  switch (parsed.type) {
+    case 'track':
+      return [await fetchSpotifyTrack(parsed.id)];
+    case 'album':
+      return fetchSpotifyAlbumTracks(parsed.id);
+    case 'playlist':
+      return fetchSpotifyPlaylistTracks(parsed.id);
+    case 'artist':
+      return fetchSpotifyArtistTracks(parsed.id);
+    default:
+      throw new Error(`Unknown Spotify URL type: ${parsed.type}`);
+  }
+}
+
+// ─── LRC conversion ───────────────────────────────────────────────────────────
+
 function vttToLrc(vtt: string): string {
   const lines = vtt.split('\n');
   const lrcLines: string[] = [];
@@ -494,20 +855,16 @@ function vttToLrc(vtt: string): string {
 
   while (i < lines.length) {
     const line = lines[i].trim();
-    // Match timestamp lines: 00:01.000 --> 00:04.000 or 00:00:01.000 --> ...
     const tsMatch = line.match(
       /^(\d{1,2}:\d{2}[.:]\d{2,3})\s*-->/
     );
     if (tsMatch) {
       const ts = tsMatch[1];
-      // Convert timestamp to [mm:ss.xx] format
       const lrcTs = normaliseTimestamp(ts);
-      // Collect text lines until blank line or next cue
       const textParts: string[] = [];
       i++;
       while (i < lines.length && lines[i].trim() !== '') {
         const t = lines[i].trim();
-        // Strip VTT tags like <00:01.000><c> and HTML entities
         const clean = t
           .replace(/<\d{2}:\d{2}[.:]\d{3}>/g, '')
           .replace(/<[^>]+>/g, '')
@@ -528,10 +885,6 @@ function vttToLrc(vtt: string): string {
   return lrcLines.join('\n');
 }
 
-/**
- * Convert a YouTube srv3 XML subtitle string to LRC format.
- * srv3 looks like: <text start="1.234" dur="2.5">Lyric line</text>
- */
 function srv3ToLrc(xml: string): string {
   const lrcLines: string[] = [];
   const re = /<text[^>]+start="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g;
@@ -554,15 +907,12 @@ function srv3ToLrc(xml: string): string {
 }
 
 function normaliseTimestamp(ts: string): string {
-  // Input: 00:01.000 or 00:00:01.000
   const parts = ts.replace(',', '.').split(':');
   if (parts.length === 2) {
-    // mm:ss.xxx
     const mm = parts[0].padStart(2, '0');
-    const ss = parts[1].padStart(6, '0'); // ss.xxx
-    return `${mm}:${ss.slice(0, 5)}`; // mm:ss.xx
+    const ss = parts[1].padStart(6, '0');
+    return `${mm}:${ss.slice(0, 5)}`;
   } else if (parts.length === 3) {
-    // hh:mm:ss.xxx — fold hours into minutes for LRC
     const totalMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
     const mm = String(totalMin).padStart(2, '0');
     const ss = parts[2].padStart(6, '0');
@@ -579,13 +929,8 @@ function secondsToLrcTs(s: number): string {
   return `${mmStr}:${ssStr}`;
 }
 
-/**
- * Post-process raw subtitle files written by yt-dlp into an LRC file.
- * Cleans up the raw files afterwards.
- * Returns the path of the written LRC file, or null if nothing found.
- */
 function convertSubsToLrc(
-  baseName: string, // full path without extension, e.g. /music/Artist - Title
+  baseName: string,
   destination: string
 ): string | null {
   const { readdirSync: rd, readFileSync: rf, writeFileSync: wf } =
@@ -596,7 +941,6 @@ function convertSubsToLrc(
 
   try {
     const files = rd(destination);
-    // Find subtitle files that share this base name
     const safeName = basename(baseName);
     const subFiles = files.filter(
       (f) =>
@@ -604,7 +948,6 @@ function convertSubsToLrc(
         /\.(srv3|ttml|vtt|srv1|srv2)$/.test(f)
     );
 
-    // Prefer srv3 > ttml > vtt
     const preferred = ['srv3', 'ttml', 'vtt', 'srv1', 'srv2'];
     let chosen: string | null = null;
     for (const ext of preferred) {
@@ -634,7 +977,6 @@ function convertSubsToLrc(
     const { writeFileSync: wfs } =
       require('node:fs') as typeof import('node:fs');
     wfs(lrcPath, lrcContent, 'utf-8');
-    // Remove raw sub files
     for (const f of rawSubFiles) {
       try {
         unlinkSync(join(destination, f));
@@ -650,6 +992,130 @@ function convertSubsToLrc(
 
 function getDownloadFolder(options: DownloadOptions): string {
   return options.destination || app.getPath('music');
+}
+
+/** Run a single yt-dlp download for a given URL with metadata */
+async function runYtdlpDownload(
+  task: DownloadTask,
+  options: DownloadOptions,
+  binPath: string
+): Promise<void> {
+  const destination = task.destination;
+  const fmt =
+    options.format && options.format in DOWNLOAD_FORMATS
+      ? DOWNLOAD_FORMATS[options.format]
+      : DOWNLOAD_FORMATS.mp3_320;
+
+  const outTemplate = join(destination, '%(uploader)s - %(title)s.%(ext)s');
+
+  const args: string[] = [
+    '--no-playlist',
+    '--progress',
+    '--newline',
+    '-x',
+    ...fmt.ytdlpArgs,
+    '--add-metadata',
+    '--embed-thumbnail',
+  ];
+
+  // Embed rich metadata via ffmpeg postprocessor args
+  if (options.artist) {
+    args.push('--ppa', `FFmpegMetadata:-metadata artist=${shellescape(options.artist)}`);
+  }
+  if (options.albumArtist) {
+    args.push('--ppa', `FFmpegMetadata:-metadata album_artist=${shellescape(options.albumArtist)}`);
+  }
+  if (options.album) {
+    args.push('--ppa', `FFmpegMetadata:-metadata album=${shellescape(options.album)}`);
+  }
+  if (options.year) {
+    args.push('--ppa', `FFmpegMetadata:-metadata date=${shellescape(options.year)}`);
+  }
+  if (options.trackNumber) {
+    args.push('--ppa', `FFmpegMetadata:-metadata track=${shellescape(options.trackNumber)}`);
+  }
+  if (options.genres && options.genres.length > 0) {
+    args.push('--ppa', `FFmpegMetadata:-metadata genre=${shellescape(options.genres.join('; '))}`);
+  }
+  if (options.title) {
+    args.push('--ppa', `FFmpegMetadata:-metadata title=${shellescape(options.title)}`);
+  }
+
+  if (options.downloadLyrics !== false) {
+    args.push(
+      '--write-subs',
+      '--write-auto-subs',
+      '--sub-langs', 'en.*',
+      '--sub-format', 'srv3/ttml/vtt/best',
+      '--output', `subtitle:${join(destination, '%(uploader)s - %(title)s.%(ext)s')}`
+    );
+  }
+
+  args.push('-o', outTemplate, '--', options.url);
+
+  const { spawn } = await import('node:child_process');
+  const proc = spawn(binPath, args, { cwd: destination });
+  task.process = proc as any;
+  task.status = 'started';
+
+  let lastFile: string | null = null;
+  let stderrAccum = '';
+
+  proc.stdout.on('data', (chunk: Buffer) => {
+    const text = chunk.toString();
+
+    const pMatch = text.match(/\[download\]\s+([\d.]+)%/);
+    if (pMatch) {
+      task.progress = parseFloat(pMatch[1]);
+      task.status = 'progress';
+      sendProgress(task, { event: 'progress', text: `${Math.round(task.progress)}%` });
+    }
+
+    const destMatch = text.match(/\[download\] Destination: (.+)/);
+    if (destMatch) {
+      const p = destMatch[1].trim();
+      if (!/\.(webp|jpg|jpeg|png|srv\d|ttml|vtt)$/i.test(p)) lastFile = p;
+    }
+
+    const postMatch = text.match(
+      /\[(?:ExtractAudio|Merger|VideoConvertor)\] Destination: (.+)/
+    );
+    if (postMatch) lastFile = postMatch[1].trim();
+  });
+
+  proc.stderr.on('data', (chunk: Buffer) => {
+    const t = chunk.toString();
+    if (!t.includes('WARNING') && !t.includes('warning')) stderrAccum += t;
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    proc.on('close', (code: number | null) => {
+      if (code === 0 || proc.killed) resolve();
+      else
+        reject(
+          new Error(stderrAccum.slice(-500) || `yt-dlp exited ${code}`)
+        );
+    });
+    proc.on('error', reject);
+  });
+
+  // Convert subtitles → LRC
+  let lrcPath: string | null = null;
+  if (options.downloadLyrics !== false && lastFile) {
+    const baseName = lastFile.replace(/\.[^.]+$/, '');
+    lrcPath = convertSubsToLrc(baseName, destination);
+    if (lrcPath) task.lrcPath = lrcPath;
+  }
+
+  task.status = 'done';
+  task.progress = 100;
+  task.outputPath = lastFile ?? undefined;
+  sendProgress(task, {
+    event: 'done',
+    text: 'Download complete',
+    outputPath: lastFile,
+    lrcPath,
+  });
 }
 
 export async function startDownload(
@@ -668,6 +1134,7 @@ export async function startDownload(
     destination,
     status: 'pending',
     progress: 0,
+    batchId: options.batchId,
   };
   downloadTasks.set(id, task);
   sendProgress(task, { event: 'started', text: 'Preparing download…' });
@@ -676,126 +1143,115 @@ export async function startDownload(
     try {
       const binPath = await ensureYtdlp();
 
-      const fmt =
-        options.format && options.format in DOWNLOAD_FORMATS
-          ? DOWNLOAD_FORMATS[options.format]
-          : DOWNLOAD_FORMATS.mp3_320;
+      // ── Spotify URL handling ────────────────────────────────────────────
+      if (isSpotifyUrl(options.url)) {
+        const parsed = parseSpotifyUrl(options.url)!;
 
-      // Use a temp name during download, then we know the exact base name
-      // so we can match subtitle files to it reliably.
-      const outTemplate = join(destination, '%(uploader)s - %(title)s.%(ext)s');
+        if (parsed.type === 'track') {
+          // Single track: resolve metadata, find best YT match, download
+          sendProgress(task, { event: 'resolving', text: 'Fetching Spotify metadata…' });
+          const meta = await fetchSpotifyTrack(parsed.id);
+          const match = await findBestYouTubeMatch(meta);
+          if (!match) throw new Error('Could not find a matching YouTube video for this track.');
 
-      const args: string[] = [
-        '--no-playlist',
-        '--progress',
-        '--newline',
-        // Audio extraction
-        '-x',
-        ...fmt.ytdlpArgs,
-        // Metadata embedding
-        '--add-metadata',
-        '--embed-thumbnail',
-      ];
-
-      // Override metadata tags when we have rich data from the search result
-      if (options.title || options.artist || options.album) {
-        // --parse-metadata lets us set arbitrary metadata fields
-        if (options.title)  args.push('--parse-metadata', `::(?P<meta_title>${escapeRegex(options.title)})`);
-        if (options.artist) {
-          // Use postprocessor args to inject into ffmpeg directly — most reliable
-          args.push(
-            '--ppa',
-            `FFmpegMetadata:-metadata artist=${shellescape(options.artist)}`
+          await runYtdlpDownload(
+            task,
+            {
+              ...options,
+              url: match.url,
+              title: meta.title,
+              artist: meta.artist,
+              albumArtist: meta.albumArtist,
+              album: meta.album,
+              year: meta.year,
+              trackNumber: meta.trackNumber,
+              genres: meta.genres,
+            },
+            binPath
           );
-        }
-        if (options.album) {
-          args.push(
-            '--ppa',
-            `FFmpegMetadata:-metadata album=${shellescape(options.album)}`
-          );
-        }
-      }
-
-      // Lyrics / subtitles
-      if (options.downloadLyrics !== false) {
-        args.push(
-          '--write-subs',
-          '--write-auto-subs',
-          '--sub-langs', 'en.*',
-          '--sub-format', 'srv3/ttml/vtt/best',
-          // Write subtitle file alongside audio; we'll convert it to LRC ourselves
-          '--output', `subtitle:${join(destination, '%(uploader)s - %(title)s.%(ext)s')}`
-        );
-      }
-
-      args.push('-o', outTemplate, '--', options.url);
-
-      const { spawn } = await import('node:child_process');
-      const proc = spawn(binPath, args, { cwd: destination });
-      task.process = proc as any;
-      task.status = 'started';
-
-      let lastFile: string | null = null;
-      let stderrAccum = '';
-
-      proc.stdout.on('data', (chunk: Buffer) => {
-        const text = chunk.toString();
-
-        const pMatch = text.match(/\[download\]\s+([\d.]+)%/);
-        if (pMatch) {
-          task.progress = parseFloat(pMatch[1]);
-          task.status = 'progress';
-          sendProgress(task, {
-            event: 'progress',
-            text: `${Math.round(task.progress)}%`,
-          });
+          return;
         }
 
-        const destMatch = text.match(/\[download\] Destination: (.+)/);
-        if (destMatch) {
-          const p = destMatch[1].trim();
-          if (!/\.(webp|jpg|jpeg|png|srv\d|ttml|vtt)$/i.test(p)) lastFile = p;
-        }
+        // Batch: album / playlist / artist
+        sendProgress(task, { event: 'resolving', text: 'Fetching Spotify track list…' });
+        let tracks: SpotifyTrackMeta[] = [];
+        if (parsed.type === 'album') tracks = await fetchSpotifyAlbumTracks(parsed.id);
+        else if (parsed.type === 'playlist') tracks = await fetchSpotifyPlaylistTracks(parsed.id);
+        else if (parsed.type === 'artist') tracks = await fetchSpotifyArtistTracks(parsed.id);
 
-        const postMatch = text.match(
-          /\[(?:ExtractAudio|Merger|VideoConvertor)\] Destination: (.+)/
-        );
-        if (postMatch) lastFile = postMatch[1].trim();
-      });
+        if (tracks.length === 0) throw new Error('No tracks found for this Spotify URL.');
 
-      proc.stderr.on('data', (chunk: Buffer) => {
-        const t = chunk.toString();
-        if (!t.includes('WARNING') && !t.includes('warning')) stderrAccum += t;
-      });
-
-      await new Promise<void>((resolve, reject) => {
-        proc.on('close', (code: number | null) => {
-          if (code === 0 || proc.killed) resolve();
-          else
-            reject(
-              new Error(stderrAccum.slice(-500) || `yt-dlp exited ${code}`)
-            );
+        task.batchTotal = tracks.length;
+        task.batchCurrent = 0;
+        sendProgress(task, {
+          event: 'batch_start',
+          text: `Downloading ${tracks.length} tracks…`,
+          batchTotal: tracks.length,
         });
-        proc.on('error', reject);
-      });
 
-      // Convert subtitle files → LRC
-      let lrcPath: string | null = null;
-      if (options.downloadLyrics !== false && lastFile) {
-        const baseName = lastFile.replace(/\.[^.]+$/, ''); // strip audio ext
-        lrcPath = convertSubsToLrc(baseName, destination);
-        if (lrcPath) task.lrcPath = lrcPath;
+        let successCount = 0;
+        let failCount = 0;
+        for (let i = 0; i < tracks.length; i++) {
+          if (task.status === 'cancelled') break;
+          const meta = tracks[i];
+          task.batchCurrent = i + 1;
+          sendProgress(task, {
+            event: 'batch_progress',
+            text: `Track ${i + 1}/${tracks.length}: ${meta.title}`,
+            batchCurrent: i + 1,
+            batchTotal: tracks.length,
+          });
+          try {
+            const match = await findBestYouTubeMatch(meta);
+            if (!match) { failCount++; continue; }
+            // Create a sub-task context for the individual download progress
+            const subTask: DownloadTask = {
+              ...task,
+              url: match.url,
+              progress: 0,
+              status: 'pending',
+            };
+            await runYtdlpDownload(
+              subTask,
+              {
+                ...options,
+                url: match.url,
+                title: meta.title,
+                artist: meta.artist,
+                albumArtist: meta.albumArtist,
+                album: meta.album,
+                year: meta.year,
+                trackNumber: meta.trackNumber,
+                genres: meta.genres,
+                isBatch: true,
+                batchId: id,
+              },
+              binPath
+            );
+            successCount++;
+          } catch (err: any) {
+            failCount++;
+            sendProgress(task, {
+              event: 'batch_track_error',
+              text: `Failed: ${meta.title} — ${err?.message ?? 'unknown error'}`,
+              batchCurrent: i + 1,
+            });
+          }
+        }
+
+        task.status = 'done';
+        task.progress = 100;
+        sendProgress(task, {
+          event: 'done',
+          text: `Batch complete — ${successCount} downloaded, ${failCount} failed`,
+          batchSuccessCount: successCount,
+          batchFailCount: failCount,
+        });
+        return;
       }
 
-      task.status = 'done';
-      task.progress = 100;
-      task.outputPath = lastFile ?? undefined;
-      sendProgress(task, {
-        event: 'done',
-        text: 'Download complete',
-        outputPath: lastFile,
-        lrcPath,
-      });
+      // ── Non-Spotify URL ─────────────────────────────────────────────────
+      await runYtdlpDownload(task, options, binPath);
     } catch (err: any) {
       if (task.status !== 'cancelled') {
         task.status = 'error';
@@ -837,10 +1293,6 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Shell-safe quoting for ffmpeg -metadata values passed via --ppa */
 function shellescape(s: string): string {
-  // ffmpeg receives this via yt-dlp's argument splitting, not a shell,
-  // so we just need to avoid breaking the arg boundary.
-  // Wrap in single quotes, escape any single quotes inside.
   return `'${s.replace(/'/g, "'\\''")}'`;
 }

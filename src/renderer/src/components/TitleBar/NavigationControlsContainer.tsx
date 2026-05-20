@@ -11,8 +11,10 @@ const NavigationControlsContainer = (props: Props) => {
   const { history, navigate } = useRouter();
   // const canGoBack = useCanGoBack();
   const canGoBack = history.length > 0;
-
-  // const canGoForward = history.index < history.entries.length - 1;
+  // history.index tracks our position in the session history
+  const canGoForward = typeof (history as any).index === 'number'
+    ? (history as any).index < (history as any).entries?.length - 1
+    : false;
 
   const bodyBackgroundImage = useStore(store, (state) => state.bodyBackgroundImage);
   // const pageHistoryIndex = useStore(store, (state) => state.navigationHistory.pageHistoryIndex);
@@ -45,18 +47,15 @@ const NavigationControlsContainer = (props: Props) => {
           tooltipLabel={t('titleBar.goHome')}
         />
       )}
-      {/* TODO: Implement forward navigation */}
-      {/* <Button
+      <Button
         iconName="arrow_forward"
         iconClassName="material-icons-round-outlined text-xl!"
         className={`forwardPageBtn app-region-no-drag hover:bg-background-color-2 hover:text-font-color-highlight dark:hover:bg-dark-background-color-2 dark:hover:text-dark-font-color-highlight invisible mr-0! flex h-fit translate-x-8 rounded-md! border-0! bg-transparent px-2! py-1! opacity-0 outline-offset-1 transition-all! dark:bg-transparent ${
-          noOfPagesInHistory !== 0 && pageHistoryIndex < noOfPagesInHistory
-            ? 'visible! translate-x-0! opacity-100! focus-visible:outline!'
-            : ''
-        } ${bodyBackgroundImage && 'text-font-color-white! hover:text-font-color-highlight!'}`}
-        clickHandler={() => {}}
+          canGoForward ? 'visible! translate-x-0! opacity-100! focus-visible:outline!' : ''
+        } ${bodyBackgroundImage ? 'text-font-color-white! hover:text-font-color-highlight!' : ''}`}
+        clickHandler={() => history.forward()}
         tooltipLabel={t('titleBar.goForward')}
-      /> */}
+      />
     </div>
   );
 };

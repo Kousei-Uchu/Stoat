@@ -112,6 +112,8 @@ import {
   startDownload,
   search as downloaderSearch,
   getYtdlpStatus,
+  resolveSpotifyUrl,
+  isSpotifyUrl,
   DOWNLOAD_FORMATS,
   type DownloadOptions,
 } from './downloader';
@@ -389,6 +391,14 @@ export function initializeIPC(mainWindow: BrowserWindow, abortSignal: AbortSigna
     ipcMain.handle('app/downloader/ytdlp-status', () => getYtdlpStatus());
 
     ipcMain.handle('app/downloader/formats', () => DOWNLOAD_FORMATS);
+
+    ipcMain.handle('app/downloader/resolve-spotify', (_, url: string) =>
+      resolveSpotifyUrl(url)
+    );
+
+    ipcMain.handle('app/downloader/is-spotify', (_, url: string) =>
+      isSpotifyUrl(url)
+    );
 
 
     ipcMain.handle(

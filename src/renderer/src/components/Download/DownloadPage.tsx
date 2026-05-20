@@ -14,8 +14,22 @@ interface SearchResult {
   album: string;
   duration: number;
   thumbnail: string;
-  source: 'ytm' | 'yt';
+  source: 'ytm' | 'yt' | 'spotify';
   url: string;
+  matchScore?: number;
+}
+
+interface SpotifyTrackMeta {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  albumArtist: string;
+  year: string;
+  trackNumber: string;
+  duration: number;
+  genres: string[];
+  albumCover?: string;
 }
 
 interface YtDlpStatus {
@@ -29,14 +43,33 @@ interface FormatDef {
   ext: string;
 }
 
+interface RecentDownload {
+  id: string;
+  title: string;
+  artist?: string;
+  filename?: string;
+  lrcPath?: string;
+  timestamp: number;
+  status: 'done' | 'error' | 'cancelled';
+  errorMsg?: string;
+  // Batch
+  batchTotal?: number;
+  batchSuccess?: number;
+  batchFail?: number;
+}
+
 type DownloadJobStatus =
   | { kind: 'idle' }
   | { kind: 'searching' }
-  | { kind: 'resolving' }
+  | { kind: 'resolving'; text?: string }
   | { kind: 'downloading'; progress: number; text: string }
+  | { kind: 'batch'; current: number; total: number; text: string; progress: number }
   | { kind: 'done'; filename?: string; lrcPath?: string }
   | { kind: 'error'; message: string }
   | { kind: 'cancelled' };
+
+// Detect URL type
+type UrlKind = 'none' | 'youtube' | 'spotify_track' | 'spotify_album' | 'spotify_playlist' | 'spotify_artist' | 'generic';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -53,6 +86,51 @@ function isUrl(v: string) {
     return u.protocol === 'http:' || u.protocol === 'https:';
   } catch {
     return false;
+  }
+}
+
+function detectUrlKind(v: string): UrlKind {
+  if (!v.trim()) return 'none';
+  try {
+    const u = new URL(v);
+    if (u.hostname.includes('spotify.com')) {
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (parts[0] === 'track') return 'spotify_track';
+      if (parts[0] === 'album') return 'spotify_album';
+      if (parts[0] === 'playlist') return 'spotify_playlist';
+      if (parts[0] === 'artist') return 'spotify_artist';
+      return 'generic';
+    }
+    if (u.hostname.includes('youtube.com') || u.hostname.includes('youtu.be') ||
+        u.hostname.includes('music.youtube.com') || u.hostname.includes('soundcloud.com')) {
+      return 'youtube';
+    }
+    if (u.protocol === 'http:' || u.protocol === 'https:') return 'generic';
+  } catch { /* not a URL */ }
+  return 'none';
+}
+
+function urlKindLabel(kind: UrlKind): string {
+  switch (kind) {
+    case 'spotify_track': return 'Spotify Track';
+    case 'spotify_album': return 'Spotify Album';
+    case 'spotify_playlist': return 'Spotify Playlist';
+    case 'spotify_artist': return "Artist's Discography";
+    case 'youtube': return 'YouTube / SoundCloud URL';
+    case 'generic': return 'Direct URL';
+    default: return '';
+  }
+}
+
+function urlKindIcon(kind: UrlKind): string {
+  switch (kind) {
+    case 'spotify_track': return 'music_note';
+    case 'spotify_album': return 'album';
+    case 'spotify_playlist': return 'queue_music';
+    case 'spotify_artist': return 'person';
+    case 'youtube': return 'smart_display';
+    case 'generic': return 'link';
+    default: return 'search';
   }
 }
 
@@ -124,6 +202,29 @@ function StatusBar({ status }: { status: DownloadJobStatus }) {
     );
   }
 
+  if (status.kind === 'batch') {
+    const pct = status.total > 0 ? Math.round((status.current / status.total) * 100) : 0;
+    return (
+      <div className="appear-from-bottom rounded-xl bg-background-color-1 p-3 dark:bg-dark-background-color-1">
+        <div className="mb-2 flex items-center gap-2">
+          <span className="material-icons-round animate-spin-ease text-base leading-none text-font-color-highlight dark:text-dark-font-color-highlight">
+            sync
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">{status.text}</span>
+          <span className="shrink-0 text-xs tabular-nums opacity-60">
+            {status.current}/{status.total}
+          </span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-background-color-2 dark:bg-dark-background-color-2">
+          <div
+            className="h-full rounded-full bg-font-color-highlight transition-all duration-300 ease-out dark:bg-dark-font-color-highlight"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (status.kind === 'done') {
     return (
       <div className="appear-from-bottom flex items-start gap-2.5 rounded-xl bg-emerald-500/10 px-3 py-2.5">
@@ -137,13 +238,12 @@ function StatusBar({ status }: { status: DownloadJobStatus }) {
               {status.filename}
             </p>
           )}
-          {status.lrcPath && (
+          {status.lrcPath ? (
             <p className="mt-0.5 flex items-center gap-1 text-xs text-emerald-600/80 dark:text-emerald-400/80">
               <span className="material-icons-round text-sm leading-none">lyrics</span>
               Lyrics saved as .lrc
             </p>
-          )}
-          {!status.lrcPath && (
+          ) : (
             <p className="mt-0.5 flex items-center gap-1 text-xs text-font-color-black/40 dark:text-font-color-white/40">
               <span className="material-icons-round text-sm leading-none">lyrics</span>
               No lyrics available for this track
@@ -154,7 +254,7 @@ function StatusBar({ status }: { status: DownloadJobStatus }) {
     );
   }
 
-  const configs = {
+  const configs: Record<string, { icon: string; color: string; bg: string; text: string }> = {
     searching: {
       icon: 'search',
       color: 'text-font-color-highlight dark:text-dark-font-color-highlight',
@@ -165,7 +265,7 @@ function StatusBar({ status }: { status: DownloadJobStatus }) {
       icon: 'sync',
       color: 'text-font-color-highlight dark:text-dark-font-color-highlight',
       bg: 'bg-background-color-1 dark:bg-dark-background-color-1',
-      text: 'Starting download…',
+      text: (status as any).text ?? 'Starting download…',
     },
     error: {
       icon: 'error',
@@ -181,12 +281,12 @@ function StatusBar({ status }: { status: DownloadJobStatus }) {
     },
   };
 
-  const c = configs[status.kind as keyof typeof configs];
+  const c = configs[status.kind];
   if (!c) return null;
 
   return (
     <div className={`appear-from-bottom flex items-start gap-2.5 rounded-xl px-3 py-2.5 ${c.bg}`}>
-      <span className={`material-icons-round text-base leading-none ${c.color}`}>{c.icon}</span>
+      <span className={`material-icons-round text-base ${status.kind === 'resolving' ? 'animate-spin-ease' : ''} leading-none ${c.color}`}>{c.icon}</span>
       <p className={`text-sm font-medium ${c.color}`}>{c.text}</p>
     </div>
   );
@@ -205,15 +305,9 @@ function ResultCard({
 }) {
   return (
     <div className="group flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-background-color-1 dark:hover:bg-dark-background-color-1">
-      {/* Thumbnail */}
       <div className="relative h-11 w-[4.5rem] shrink-0 overflow-hidden rounded-lg bg-background-color-2 dark:bg-dark-background-color-2">
         {result.thumbnail ? (
-          <img
-            src={result.thumbnail}
-            alt=""
-            className="h-full w-full object-cover"
-            loading="lazy"
-          />
+          <img src={result.thumbnail} alt="" className="h-full w-full object-cover" loading="lazy" />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
             <span className="material-icons-round text-sm text-font-color-black/20 dark:text-font-color-white/20">
@@ -227,8 +321,6 @@ function ResultCard({
           </span>
         )}
       </div>
-
-      {/* Info */}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium leading-snug" title={result.title}>
           {result.title}
@@ -236,14 +328,23 @@ function ResultCard({
         <p className="mt-0.5 truncate text-xs text-font-color-black/55 dark:text-font-color-white/55">
           {[result.artist, result.album].filter(Boolean).join(' · ')}
         </p>
+        {result.matchScore !== undefined && (
+          <div className="mt-1 flex items-center gap-1.5">
+            <div className="h-1 w-16 overflow-hidden rounded-full bg-background-color-2 dark:bg-dark-background-color-2">
+              <div
+                className="h-full rounded-full bg-font-color-highlight/60 dark:bg-dark-font-color-highlight/60"
+                style={{ width: `${Math.round(result.matchScore * 100)}%` }}
+              />
+            </div>
+            <span className="text-[10px] text-font-color-black/35 dark:text-font-color-white/35">
+              {Math.round(result.matchScore * 100)}% match
+            </span>
+          </div>
+        )}
       </div>
-
-      {/* Source badge */}
       <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-font-color-black/25 dark:text-font-color-white/25">
-        {result.source === 'ytm' ? 'YTM' : 'YT'}
+        {result.source === 'ytm' ? 'YTM' : result.source === 'spotify' ? 'SPT' : 'YT'}
       </span>
-
-      {/* Download button */}
       <button
         onClick={() => onDownload(result)}
         disabled={isDownloading}
@@ -252,6 +353,78 @@ function ResultCard({
       >
         <span className="material-icons-round text-xl leading-none">download</span>
       </button>
+    </div>
+  );
+}
+
+// ─── Recent downloads section ─────────────────────────────────────────────────
+
+function RecentDownloads({ items }: { items: RecentDownload[] }) {
+  if (items.length === 0) return null;
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-medium text-font-color-black/50 dark:text-font-color-white/50">
+          Recent downloads
+        </span>
+        <span className="text-xs text-font-color-black/30 dark:text-font-color-white/30">
+          {items.length} item{items.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      <div className="rounded-xl border border-background-color-1 bg-background-color-2/40 dark:border-dark-background-color-1 dark:bg-dark-background-color-2/40">
+        <div className="max-h-52 divide-y divide-background-color-1 overflow-y-auto dark:divide-dark-background-color-1">
+          {items.map((item) => (
+            <div key={item.id} className="flex items-start gap-2.5 px-3 py-2.5">
+              <span
+                className={`material-icons-round mt-px shrink-0 text-base leading-none ${
+                  item.status === 'done'
+                    ? 'text-emerald-500'
+                    : item.status === 'error'
+                    ? 'text-red-400'
+                    : 'text-font-color-black/25 dark:text-font-color-white/25'
+                }`}
+              >
+                {item.status === 'done'
+                  ? item.batchTotal
+                    ? 'library_music'
+                    : 'audio_file'
+                  : item.status === 'error'
+                  ? 'error_outline'
+                  : 'cancel'}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium leading-snug">
+                  {item.title}
+                </p>
+                {item.artist && (
+                  <p className="mt-0.5 truncate text-[11px] text-font-color-black/45 dark:text-font-color-white/45">
+                    {item.artist}
+                  </p>
+                )}
+                {item.batchTotal != null && (
+                  <p className="mt-0.5 text-[11px] text-font-color-black/45 dark:text-font-color-white/45">
+                    {item.batchSuccess ?? 0}/{item.batchTotal} tracks downloaded
+                    {item.batchFail ? ` · ${item.batchFail} failed` : ''}
+                  </p>
+                )}
+                {item.errorMsg && (
+                  <p className="mt-0.5 truncate text-[11px] text-red-400">{item.errorMsg}</p>
+                )}
+                {item.lrcPath && (
+                  <p className="mt-0.5 flex items-center gap-1 text-[11px] text-emerald-500/70">
+                    <span className="material-icons-round text-xs leading-none">lyrics</span>
+                    Lyrics saved
+                  </p>
+                )}
+              </div>
+              <span className="shrink-0 text-[10px] text-font-color-black/25 dark:text-font-color-white/25">
+                {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -284,6 +457,29 @@ function ToggleChip({
   );
 }
 
+// ─── URL kind pill ────────────────────────────────────────────────────────────
+
+function UrlKindPill({ kind }: { kind: UrlKind }) {
+  if (kind === 'none') return null;
+  const isBatch = kind === 'spotify_album' || kind === 'spotify_playlist' || kind === 'spotify_artist';
+  return (
+    <div className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium
+      ${isBatch
+        ? 'bg-font-color-highlight/10 text-font-color-highlight dark:bg-dark-font-color-highlight/10 dark:text-dark-font-color-highlight'
+        : 'bg-background-color-1 text-font-color-black/55 dark:bg-dark-background-color-1 dark:text-font-color-white/55'
+      }`}
+    >
+      <span className="material-icons-round text-sm leading-none">{urlKindIcon(kind)}</span>
+      {urlKindLabel(kind)}
+      {isBatch && (
+        <span className="rounded bg-font-color-highlight/20 px-1 py-px text-[10px] dark:bg-dark-font-color-highlight/20">
+          batch
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function DownloadPage() {
@@ -311,10 +507,14 @@ export default function DownloadPage() {
   const [jobStatus, setJobStatus] = useState<DownloadJobStatus>({ kind: 'idle' });
   const [ytdlpStatus, setYtdlpStatus] = useState<YtDlpStatus | null>(null);
   const [activeUrl, setActiveUrl] = useState<string | null>(null);
-  const [downloadedFiles, setDownloadedFiles] = useState<string[]>([]);
+  const [recentDownloads, setRecentDownloads] = useState<RecentDownload[]>([]);
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeJobId = useRef<string | null>(null);
+  const currentJobLabel = useRef<string>('');
+
+  const urlKind = detectUrlKind(query.trim());
+  const isUrlMode = urlKind !== 'none' && isUrl(query.trim());
 
   // ── Mount ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -327,27 +527,60 @@ export default function DownloadPage() {
       .catch(() => null);
 
     const onProgress = (_: unknown, data: any) => {
-      const { event, text, progress, outputPath, lrcPath } = data ?? {};
+      const { event, text, progress, outputPath, lrcPath, batchTotal, batchCurrent, batchSuccessCount, batchFailCount } = data ?? {};
+
       if (event === 'progress') {
         setJobStatus({ kind: 'downloading', progress: progress ?? 0, text: text ?? 'Downloading…' });
+      } else if (event === 'batch_start') {
+        setJobStatus({ kind: 'batch', current: 0, total: batchTotal ?? 0, text: text ?? 'Starting batch…', progress: 0 });
+      } else if (event === 'batch_progress') {
+        setJobStatus({ kind: 'batch', current: batchCurrent ?? 0, total: batchTotal ?? 0, text: text ?? '…', progress: batchTotal ? (batchCurrent / batchTotal) * 100 : 0 });
       } else if (event === 'done') {
-        const filename = outputPath
-          ? (outputPath as string).split(/[\\/]/).pop()
-          : undefined;
+        const filename = outputPath ? (outputPath as string).split(/[/\\]/).pop() : undefined;
         setJobStatus({ kind: 'done', filename, lrcPath: lrcPath ?? undefined });
         setActiveUrl(null);
+        const id = activeJobId.current ?? randomId();
         activeJobId.current = null;
-        refreshFiles();
+        setRecentDownloads((prev) => [
+          {
+            id,
+            title: currentJobLabel.current || filename || 'Unknown',
+            filename,
+            lrcPath: lrcPath ?? undefined,
+            timestamp: Date.now(),
+            status: 'done',
+            batchSuccess: batchSuccessCount,
+            batchFail: batchFailCount,
+            batchTotal: batchTotal,
+          },
+          ...prev.slice(0, 49),
+        ]);
       } else if (event === 'error') {
         setJobStatus({ kind: 'error', message: text ?? 'Unknown error' });
         setActiveUrl(null);
+        const id = activeJobId.current ?? randomId();
         activeJobId.current = null;
+        setRecentDownloads((prev) => [
+          {
+            id,
+            title: currentJobLabel.current || 'Failed download',
+            timestamp: Date.now(),
+            status: 'error',
+            errorMsg: text ?? undefined,
+          },
+          ...prev.slice(0, 49),
+        ]);
       } else if (event === 'cancelled') {
         setJobStatus({ kind: 'cancelled' });
         setActiveUrl(null);
         activeJobId.current = null;
       } else if (event === 'started') {
         setJobStatus({ kind: 'resolving' });
+      } else if (event === 'resolving') {
+        setJobStatus({ kind: 'resolving', text: text ?? 'Resolving…' });
+      } else if (event === 'batch_track_error') {
+        // update batch status text only
+        setJobStatus((prev) => prev.kind === 'batch' ? { ...prev, text: text ?? prev.text } : prev);
       }
     };
 
@@ -355,7 +588,6 @@ export default function DownloadPage() {
 
     window.api.downloader.onProgress(onProgress);
     window.api.downloader.onYtdlpStatus?.(onYtdlpStatus);
-    refreshFiles();
 
     return () => {
       window.api.downloader.removeOnProgress(onProgress);
@@ -364,15 +596,9 @@ export default function DownloadPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const refreshFiles = useCallback(async () => {
-    try {
-      const list = await window.api.downloader.listDownloads(downloadFolder || undefined);
-      setDownloadedFiles(list ?? []);
-    } catch { /* silent */ }
-  }, [downloadFolder]);
-
   // ── Search ─────────────────────────────────────────────────────────────────
-  const handleQueryChange = (value: string) => {
+  const handleQueryChange = useCallback((value: string) => {
+    // Allow spaces in the input (previously broken)
     setQuery(value);
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (!value.trim() || isUrl(value.trim())) {
@@ -391,13 +617,12 @@ export default function DownloadPage() {
         setJobStatus({ kind: 'error', message: err?.message ?? 'Search failed' });
       }
     }, 400);
-  };
+  }, []);
 
   // ── Download ───────────────────────────────────────────────────────────────
   const startDownload = useCallback(
     async (urlOrResult: string | SearchResult) => {
-      const url =
-        typeof urlOrResult === 'string' ? urlOrResult : urlOrResult.url;
+      const url = typeof urlOrResult === 'string' ? urlOrResult : urlOrResult.url;
       if (!url.trim() || activeUrl) return;
 
       setActiveUrl(url);
@@ -411,6 +636,12 @@ export default function DownloadPage() {
               album: urlOrResult.album,
             }
           : {};
+
+      // Set label for recent downloads
+      currentJobLabel.current =
+        typeof urlOrResult === 'object'
+          ? `${urlOrResult.title}${urlOrResult.artist ? ' — ' + urlOrResult.artist : ''}`
+          : url;
 
       try {
         const id = await window.api.downloader.startDownload({
@@ -440,12 +671,14 @@ export default function DownloadPage() {
     setActiveUrl(null);
   }, []);
 
-  const isUrlMode = isUrl(query.trim());
   const isBusy =
     jobStatus.kind === 'downloading' ||
+    jobStatus.kind === 'batch' ||
     jobStatus.kind === 'resolving' ||
     jobStatus.kind === 'searching';
+
   const formatKeys = Object.keys(formats);
+  const isBatch = urlKind === 'spotify_album' || urlKind === 'spotify_playlist' || urlKind === 'spotify_artist';
 
   return (
     <MainContainer className="appear-from-bottom text-font-color-black dark:text-font-color-white">
@@ -458,7 +691,7 @@ export default function DownloadPage() {
         {/* ── Search / URL input ── */}
         <div className="relative">
           <span className="material-icons-round absolute top-1/2 left-3.5 -translate-y-1/2 text-base leading-none text-font-color-black/35 dark:text-font-color-white/35">
-            {isUrlMode ? 'link' : 'search'}
+            {isUrlMode ? urlKindIcon(urlKind) : 'search'}
           </span>
           <input
             value={query}
@@ -467,10 +700,11 @@ export default function DownloadPage() {
               if (e.key === 'Enter' && isUrlMode && query.trim())
                 startDownload(query.trim());
             }}
-            placeholder="Search for a song, or paste a YouTube / SoundCloud URL"
+            placeholder="Search for a song, or paste a URL (YouTube, Spotify, SoundCloud…)"
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
+            // Fix for spaces: use defaultValue-style or make sure React controls value
             className="w-full rounded-xl border border-background-color-1 bg-background-color-2 py-2.5 pr-10 pl-10 text-sm outline-none placeholder:text-font-color-black/35 transition-colors focus:border-font-color-highlight/40 dark:border-dark-background-color-1 dark:bg-dark-background-color-2 dark:placeholder:text-font-color-white/35 dark:focus:border-dark-font-color-highlight/40"
           />
           {query.length > 0 && (
@@ -486,6 +720,18 @@ export default function DownloadPage() {
             </button>
           )}
         </div>
+
+        {/* URL kind pill */}
+        {isUrlMode && (
+          <div className="flex items-center gap-2">
+            <UrlKindPill kind={urlKind} />
+            {isBatch && (
+              <p className="text-xs text-font-color-black/45 dark:text-font-color-white/45">
+                All tracks will be downloaded automatically
+              </p>
+            )}
+          </div>
+        )}
 
         {/* ── Format row ── */}
         <div className="flex flex-wrap items-center gap-2">
@@ -513,7 +759,6 @@ export default function DownloadPage() {
             onClick={() => setDownloadLyrics((v) => !v)}
           />
 
-          {/* URL-mode download/cancel button sits at the end */}
           {isUrlMode && (
             <button
               onClick={() => (isBusy ? cancelDownload() : startDownload(query.trim()))}
@@ -525,9 +770,9 @@ export default function DownloadPage() {
               }`}
             >
               <span className="material-icons-round text-base leading-none">
-                {isBusy ? 'stop' : 'download'}
+                {isBusy ? 'stop' : isBatch ? 'library_add' : 'download'}
               </span>
-              {isBusy ? 'Cancel' : 'Download'}
+              {isBusy ? 'Cancel' : isBatch ? 'Download all' : 'Download'}
             </button>
           )}
         </div>
@@ -556,50 +801,17 @@ export default function DownloadPage() {
           </div>
         )}
 
-        {/* ── Downloaded files ── */}
-        {downloadedFiles.length > 0 && (
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-font-color-black/50 dark:text-font-color-white/50">
-                In download folder
-              </span>
-              <button
-                onClick={refreshFiles}
-                className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-font-color-black/45 transition-colors hover:bg-background-color-1 dark:text-font-color-white/45 dark:hover:bg-dark-background-color-1"
-              >
-                <span className="material-icons-round text-sm leading-none">refresh</span>
-                Refresh
-              </button>
-            </div>
-            <div className="rounded-xl border border-background-color-1 bg-background-color-2/40 dark:border-dark-background-color-1 dark:bg-dark-background-color-2/40">
-              <div className="max-h-44 divide-y divide-background-color-1 overflow-y-auto dark:divide-dark-background-color-1">
-                {downloadedFiles.map((file) => (
-                  <div key={file} className="flex items-center gap-2 px-3 py-2">
-                    <span
-                      className={`material-icons-round text-sm leading-none ${
-                        file.endsWith('.lrc')
-                          ? 'text-font-color-highlight/60 dark:text-dark-font-color-highlight/60'
-                          : 'text-font-color-black/25 dark:text-font-color-white/25'
-                      }`}
-                    >
-                      {file.endsWith('.lrc') ? 'lyrics' : 'audio_file'}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-xs">{file}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
+        {/* ── Recent downloads ── */}
+        <RecentDownloads items={recentDownloads} />
 
         {/* ── Empty state ── */}
-        {!query && results.length === 0 && jobStatus.kind === 'idle' && (
+        {!query && results.length === 0 && jobStatus.kind === 'idle' && recentDownloads.length === 0 && (
           <div className="flex flex-col items-center gap-3 py-14 text-center text-font-color-black/25 dark:text-font-color-white/25">
             <span className="material-icons-round text-5xl leading-none">cloud_download</span>
             <div>
               <p className="text-sm font-medium">Search for a song or paste a URL</p>
               <p className="mt-1 text-xs">
-                Supports YouTube, YouTube Music, SoundCloud, and more
+                Supports YouTube, YouTube Music, Spotify, SoundCloud, and more
               </p>
             </div>
           </div>
@@ -607,4 +819,8 @@ export default function DownloadPage() {
       </div>
     </MainContainer>
   );
+}
+
+function randomId() {
+  return Math.random().toString(36).slice(2);
 }

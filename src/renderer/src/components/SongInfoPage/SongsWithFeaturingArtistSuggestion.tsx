@@ -1,5 +1,6 @@
 import { store } from '@renderer/store/store';
 import { useStore } from '@tanstack/react-store';
+import { useNavigate } from '@tanstack/react-router';
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
@@ -27,6 +28,7 @@ const SongsWithFeaturingArtistsSuggestion = (props: Props) => {
   const { t } = useTranslation();
 
   const { songTitle = '', songId, artistNames, updateSongInfo } = props;
+  const navigate = useNavigate();
 
   const [isIgnored, setIsIgnored] = useState(false);
   const [isRemovingFeatInfoFromTitle, setIsRemovingFeatInfoFromTitle] = useState(true);
@@ -232,12 +234,7 @@ const SongsWithFeaturingArtistsSuggestion = (props: Props) => {
                   iconClassName="material-icons-round-outlined"
                   label={t('featArtistsSuggestion.editInMetadataEditingPage')}
                   clickHandler={() => {
-                    // TODO: Implement song tags editor page navigation
-                    // changeCurrentActivePage('SongTagsEditor', {
-                    //   songId,
-                    //   songPath: path,
-                    //   isKnownSource: true
-                    // });
+                    if (songId) navigate({ to: '/main-player/songs/edit/$songId', params: { songId: String(songId) } });
                   }}
                 />
                 <Button

@@ -1,46 +1,24 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-
+import { useNavigate } from '@tanstack/react-router';
 import Checkbox from '../../Checkbox';
 import storage from '../../../utils/localStorage';
 
 export default function DownloadSettings() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+
   const [enabled, setEnabled] = useState(() =>
     storage.preferences.getPreferences('enableDownloaderFeatures') ?? true
   );
   const [downloadFolder, setDownloadFolder] = useState<string>(
     storage.preferences.getPreferences('downloadFolder') || ''
   );
-  const [youtubeAuth, setYoutubeAuth] = useState(
-    storage.preferences.getPreferences('enableYoutubeAuth') ?? false
+  const [defaultFormat, setDefaultFormat] = useState<string>(
+    storage.preferences.getPreferences('defaultDownloadFormat') || 'mp3_320'
   );
-  const [spotifyAuth, setSpotifyAuth] = useState(
-    storage.preferences.getPreferences('enableSpotifyAuth') ?? false
-  );
-  const [soundcloudAuth, setSoundcloudAuth] = useState(
-    storage.preferences.getPreferences('enableSoundcloudAuth') ?? false
-  );
-  const [youtubeApiKey, setYoutubeApiKey] = useState(
-    storage.preferences.getPreferences('youtubeApiKey') || ''
-  );
-  const [spotifyClientId, setSpotifyClientId] = useState(
-    storage.preferences.getPreferences('spotifyClientId') || ''
-  );
-  const [spotifyClientSecret, setSpotifyClientSecret] = useState(
-    storage.preferences.getPreferences('spotifyClientSecret') || ''
-  );
-  const [soundcloudClientId, setSoundcloudClientId] = useState(
-    storage.preferences.getPreferences('soundcloudClientId') || ''
-  );
-  const [enableDjMode, setEnableDjMode] = useState(
-    storage.preferences.getPreferences('enableDjMode') ?? false
-  );
-  const [djProvider, setDjProvider] = useState(
-    storage.preferences.getPreferences('djProvider') || 'none'
-  );
-  const [djModel, setDjModel] = useState(
-    storage.preferences.getPreferences('djModel') || 'local'
+  const [downloadLyrics, setDownloadLyrics] = useState(
+    storage.preferences.getPreferences('downloadLyricsDefault') ?? true
   );
   const [enableCrossfade, setEnableCrossfade] = useState(
     storage.preferences.getPreferences('enableCrossfade') ?? false
@@ -52,200 +30,187 @@ export default function DownloadSettings() {
     storage.preferences.getPreferences('enableLoudnessNormalization') ?? false
   );
 
-  useEffect(() => {
-    storage.preferences.setPreferences('enableDownloaderFeatures', enabled);
-  }, [enabled]);
-
   const saveFolder = () => {
     storage.preferences.setPreferences('downloadFolder', downloadFolder);
   };
 
-  const saveCredentials = () => {
-    storage.preferences.setPreferences('youtubeApiKey', youtubeApiKey);
-    storage.preferences.setPreferences('spotifyClientId', spotifyClientId);
-    storage.preferences.setPreferences('spotifyClientSecret', spotifyClientSecret);
-    storage.preferences.setPreferences('soundcloudClientId', soundcloudClientId);
+  const saveFormat = () => {
+    storage.preferences.setPreferences('defaultDownloadFormat', defaultFormat);
+    storage.preferences.setPreferences('downloadLyricsDefault', downloadLyrics);
   };
 
-  const saveDjSettings = () => {
-    storage.preferences.setPreferences('enableDjMode', enableDjMode);
-    storage.preferences.setPreferences('djProvider', djProvider);
-    storage.preferences.setPreferences('djModel', djModel);
+  const savePlayback = () => {
     storage.preferences.setPreferences('enableCrossfade', enableCrossfade);
     storage.preferences.setPreferences('crossfadeDuration', crossfadeDuration);
     storage.preferences.setPreferences('enableLoudnessNormalization', enableLoudnessNormalization);
   };
 
-  return (
-    <li className="settings-section">
-      <h3 className="text-lg font-medium">{t('settingsPage.downloads') || 'Downloads'}</h3>
+  const FORMATS: Record<string, string> = {
+    mp3_320: 'MP3 320kbps',
+    mp3_192: 'MP3 192kbps',
+    mp3_128: 'MP3 128kbps',
+    flac: 'FLAC (lossless)',
+    wav: 'WAV',
+    ogg: 'OGG Vorbis',
+    aac: 'AAC',
+    m4a: 'M4A',
+    opus: 'Opus',
+  };
 
-      <div className="mt-2">
+  return (
+    <li className="settings-section" id="download-settings-container">
+      <h3 className="text-lg font-medium">{t('settingsPage.downloads') || 'Downloads'}</h3>
+      <p className="mt-1 text-sm text-font-color-black/55 dark:text-font-color-white/55">
+        Configure how Nora downloads and saves music from the internet.
+      </p>
+
+      {/* Enable / disable */}
+      <div className="mt-4">
         <Checkbox
           id="enableDownloaderFeatures"
-          labelContent={t('settingsPage.enableDownloader') || 'Enable downloader features'}
+          labelContent={t('settingsPage.enableDownloader') || 'Enable downloader'}
           isChecked={enabled}
           checkedStateUpdateFunction={(state) => {
             setEnabled(state);
             storage.preferences.setPreferences('enableDownloaderFeatures', state);
           }}
         />
+        <p className="mt-1 ml-6 text-xs text-font-color-black/45 dark:text-font-color-white/45">
+          Shows the Download tab in the sidebar. Uses yt-dlp (auto-downloaded on first use, ~10 MB).
+        </p>
       </div>
 
-      <div className="mt-4">
-        <label className="block mb-1">{t('settingsPage.downloadFolder') || 'Download folder'}</label>
-        <input
-          value={downloadFolder}
-          onChange={(e) => setDownloadFolder(e.target.value)}
-          className="w-full p-2 rounded border"
-          placeholder="Leave blank to use system music folder"
-        />
-        <div className="mt-2">
-          <button className="btn" onClick={saveFolder}>
-            {t('save') || 'Save'}
-          </button>
-        </div>
-      </div>
+      {enabled && (
+        <>
+          {/* Download folder */}
+          <div className="mt-5">
+            <label className="block text-sm font-medium mb-1">
+              {t('settingsPage.downloadFolder') || 'Download folder'}
+            </label>
+            <p className="mb-2 text-xs text-font-color-black/45 dark:text-font-color-white/45">
+              Where downloaded songs are saved. Leave blank to use the system Music folder.
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={downloadFolder}
+                onChange={(e) => setDownloadFolder(e.target.value)}
+                className="flex-1 rounded-lg border border-background-color-1 bg-background-color-2 px-3 py-2 text-sm outline-none focus:border-font-color-highlight/40 dark:border-dark-background-color-1 dark:bg-dark-background-color-2 dark:focus:border-dark-font-color-highlight/40"
+                placeholder="e.g. /Users/you/Music/Downloads"
+              />
+              <button
+                onClick={saveFolder}
+                className="rounded-lg bg-font-color-highlight px-4 py-2 text-sm font-medium text-white dark:bg-dark-font-color-highlight dark:text-font-color-black"
+              >
+                Save
+              </button>
+            </div>
+          </div>
 
-      <div className="mt-6">
-        <div className="text-sm font-medium">{t('settingsPage.authCredentials') || 'Credentials'}</div>
-        <div className="mt-2 grid gap-4 sm:grid-cols-2">
-          <label className="block">
-            <span className="block mb-1">YouTube API Key</span>
-            <input
-              value={youtubeApiKey}
-              onChange={(e) => setYoutubeApiKey(e.target.value)}
-              className="w-full p-2 rounded border"
-              placeholder="YouTube API Key"
-            />
-          </label>
-          <label className="block">
-            <span className="block mb-1">Spotify Client ID</span>
-            <input
-              value={spotifyClientId}
-              onChange={(e) => setSpotifyClientId(e.target.value)}
-              className="w-full p-2 rounded border"
-              placeholder="Spotify Client ID"
-            />
-          </label>
-          <label className="block">
-            <span className="block mb-1">Spotify Client Secret</span>
-            <input
-              value={spotifyClientSecret}
-              onChange={(e) => setSpotifyClientSecret(e.target.value)}
-              className="w-full p-2 rounded border"
-              placeholder="Spotify Client Secret"
-              type="password"
-            />
-          </label>
-          <label className="block">
-            <span className="block mb-1">SoundCloud Client ID</span>
-            <input
-              value={soundcloudClientId}
-              onChange={(e) => setSoundcloudClientId(e.target.value)}
-              className="w-full p-2 rounded border"
-              placeholder="SoundCloud Client ID"
-            />
-          </label>
-        </div>
-        <div className="mt-3">
-          <button className="btn" onClick={saveCredentials}>
-            {t('save') || 'Save Credentials'}
-          </button>
-        </div>
-      </div>
+          {/* Default format */}
+          <div className="mt-5">
+            <label className="block text-sm font-medium mb-1">
+              Default format
+            </label>
+            <p className="mb-2 text-xs text-font-color-black/45 dark:text-font-color-white/45">
+              The audio format used when downloading from the Download page.
+            </p>
+            <div className="flex items-center gap-3">
+              <select
+                value={defaultFormat}
+                onChange={(e) => setDefaultFormat(e.target.value)}
+                className="flex-1 rounded-lg border border-background-color-1 bg-background-color-2 px-3 py-2 text-sm outline-none dark:border-dark-background-color-1 dark:bg-dark-background-color-2"
+              >
+                {Object.entries(FORMATS).map(([key, label]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-3">
+              <Checkbox
+                id="downloadLyricsDefault"
+                labelContent="Download lyrics (.lrc) by default"
+                isChecked={downloadLyrics}
+                checkedStateUpdateFunction={(state) => setDownloadLyrics(state)}
+              />
+            </div>
+            <div className="mt-2">
+              <button
+                onClick={saveFormat}
+                className="rounded-lg bg-font-color-highlight px-4 py-2 text-sm font-medium text-white dark:bg-dark-font-color-highlight dark:text-font-color-black"
+              >
+                Save defaults
+              </button>
+            </div>
+          </div>
 
-      <div className="mt-6 grid gap-2">
-        <Checkbox
-          id="youtubeAuthToggle"
-          labelContent={t('settingsPage.enableYoutubeAuth') || 'Enable YouTube auth features'}
-          isChecked={youtubeAuth}
-          checkedStateUpdateFunction={(state) => {
-            setYoutubeAuth(state);
-            storage.preferences.setPreferences('enableYoutubeAuth', state);
-          }}
-        />
-        <Checkbox
-          id="spotifyAuthToggle"
-          labelContent={t('settingsPage.enableSpotifyAuth') || 'Enable Spotify auth features'}
-          isChecked={spotifyAuth}
-          checkedStateUpdateFunction={(state) => {
-            setSpotifyAuth(state);
-            storage.preferences.setPreferences('enableSpotifyAuth', state);
-          }}
-        />
-        <Checkbox
-          id="soundcloudAuthToggle"
-          labelContent={t('settingsPage.enableSoundcloudAuth') || 'Enable SoundCloud auth features'}
-          isChecked={soundcloudAuth}
-          checkedStateUpdateFunction={(state) => {
-            setSoundcloudAuth(state);
-            storage.preferences.setPreferences('enableSoundcloudAuth', state);
-          }}
-        />
-      </div>
+          {/* Playback */}
+          <div className="mt-5 border-t border-background-color-1 pt-4 dark:border-dark-background-color-1">
+            <p className="text-sm font-medium mb-3">Playback enhancements</p>
+            <div className="flex flex-col gap-3">
+              <Checkbox
+                id="enableCrossfade"
+                labelContent={t('settingsPage.enableCrossfade') || 'Enable crossfade between tracks'}
+                isChecked={enableCrossfade}
+                checkedStateUpdateFunction={(state) => setEnableCrossfade(state)}
+              />
+              {enableCrossfade && (
+                <div className="ml-6 flex items-center gap-3">
+                  <label className="text-xs text-font-color-black/55 dark:text-font-color-white/55 w-28">
+                    Crossfade duration
+                  </label>
+                  <input
+                    type="range"
+                    min={1}
+                    max={12}
+                    step={1}
+                    value={crossfadeDuration}
+                    onChange={(e) => setCrossfadeDuration(Number(e.target.value))}
+                    className="flex-1 accent-font-color-highlight dark:accent-dark-font-color-highlight"
+                  />
+                  <span className="w-10 text-right text-xs tabular-nums text-font-color-black/55 dark:text-font-color-white/55">
+                    {crossfadeDuration}s
+                  </span>
+                </div>
+              )}
+              <Checkbox
+                id="enableLoudnessNormalization"
+                labelContent={
+                  t('settingsPage.enableLoudnessNormalization') || 'Enable loudness normalisation'
+                }
+                isChecked={enableLoudnessNormalization}
+                checkedStateUpdateFunction={(state) => setEnableLoudnessNormalization(state)}
+              />
+            </div>
+            <div className="mt-3">
+              <button
+                onClick={savePlayback}
+                className="rounded-lg bg-font-color-highlight px-4 py-2 text-sm font-medium text-white dark:bg-dark-font-color-highlight dark:text-font-color-black"
+              >
+                Save
+              </button>
+            </div>
+          </div>
 
-      <div className="mt-6 border-t border-border-color pt-4">
-        <div className="text-sm font-medium">{t('settingsPage.djMode') || 'DJ Mode'}</div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <Checkbox
-            id="enableDjMode"
-            labelContent={t('settingsPage.enableDjMode') || 'Enable DJ mode'}
-            isChecked={enableDjMode}
-            checkedStateUpdateFunction={(state) => setEnableDjMode(state)}
-          />
-          <label className="block">
-            <span className="block mb-1">{t('settingsPage.djProvider') || 'AI provider'}</span>
-            <select
-              value={djProvider}
-              onChange={(e) => setDjProvider(e.target.value)}
-              className="w-full p-2 rounded border"
-            >
-              <option value="none">None</option>
-              <option value="local">On-device</option>
-              <option value="cloud">Cloud</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="block mb-1">{t('settingsPage.djModel') || 'Model'}</span>
-            <input
-              value={djModel}
-              onChange={(e) => setDjModel(e.target.value)}
-              className="w-full p-2 rounded border"
-              placeholder="e.g. local-llm or cloud-llm"
-            />
-          </label>
-          <Checkbox
-            id="enableCrossfade"
-            labelContent={t('settingsPage.enableCrossfade') || 'Enable crossfade'}
-            isChecked={enableCrossfade}
-            checkedStateUpdateFunction={(state) => setEnableCrossfade(state)}
-          />
-          <label className="block">
-            <span className="block mb-1">{t('settingsPage.crossfadeDuration') || 'Crossfade duration (seconds)'}</span>
-            <input
-              type="number"
-              value={crossfadeDuration}
-              min={0}
-              onChange={(e) => setCrossfadeDuration(Number(e.target.value))}
-              className="w-full p-2 rounded border"
-            />
-          </label>
-          <Checkbox
-            id="enableLoudnessNormalization"
-            labelContent={
-              t('settingsPage.enableLoudnessNormalization') || 'Enable loudness normalization'
-            }
-            isChecked={enableLoudnessNormalization}
-            checkedStateUpdateFunction={(state) => setEnableLoudnessNormalization(state)}
-          />
-        </div>
-        <div className="mt-3">
-          <button className="btn" onClick={saveDjSettings}>
-            {t('save') || 'Save DJ Settings'}
-          </button>
-        </div>
-      </div>
+          {/* DJ Mode link */}
+          <div className="mt-5 border-t border-background-color-1 pt-4 dark:border-dark-background-color-1">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">DJ Mode</p>
+                <p className="mt-0.5 text-xs text-font-color-black/45 dark:text-font-color-white/45">
+                  AI-generated voice announcements, crossfade, mood-based queuing
+                </p>
+              </div>
+              <button
+                onClick={() => navigate({ to: '/main-player/dj' })}
+                className="flex items-center gap-1.5 rounded-lg bg-background-color-1 px-3 py-2 text-sm font-medium transition-colors hover:bg-background-color-2 dark:bg-dark-background-color-1 dark:hover:bg-dark-background-color-2"
+              >
+                <span className="material-icons-round text-base leading-none">radio</span>
+                Open DJ Mode
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </li>
   );
 }
