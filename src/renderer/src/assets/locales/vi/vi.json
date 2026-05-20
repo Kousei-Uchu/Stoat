@@ -717,7 +717,8 @@
 
   "sideBar": {
     "home": "Trang chủ",
-    "search": "Tìm kiếm"
+    "search": "Tìm kiếm",
+    "download": "Tải xuống"
   },
 
   "renamePlaylistPrompt": {

@@ -68,6 +68,16 @@
   font-display: swap;
 }
 
+/* ? OPEN DYSLEXIC FONT (optional local fallback / CDN) */
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('../fonts/OpenDyslexicAlta-Regular.otf') format('opentype'),
+    url('https://cdn.jsdelivr.net/gh/antijingoist/open-dyslexic/otf/OpenDyslexicAlta-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-display: swap;
+}
+
+
 @font-face {
   font-family: 'Poppins';
   src: url('../fonts/Poppins-Regular.woff2');
@@ -155,6 +165,11 @@ html {
 
 * {
   font-family: 'Poppins', 'Helvetica Neue', Helvetica, Arial, 'Lucida Grande', sans-serif;
+}
+
+body.open-dyslexic,
+.open-dyslexic * {
+  font-family: 'OpenDyslexic', 'Poppins', 'Helvetica Neue', Helvetica, Arial, 'Lucida Grande', sans-serif;
 }
 
 *:focus {

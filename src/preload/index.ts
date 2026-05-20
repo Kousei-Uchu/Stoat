@@ -309,6 +309,20 @@ const storageData = {
   getDatabaseMetrics: (): Promise<DatabaseMetrics> => ipcRenderer.invoke('app/getDatabaseMetrics')
 };
 
+// $ DOWNLOADER
+const downloader = {
+  startDownload: (options: DownloadOptions): Promise<string> => ipcRenderer.invoke('app/downloader/start', options),
+  cancelDownload: (id: string): Promise<void> => ipcRenderer.invoke('app/downloader/cancel', id),
+  listDownloads: (folder?: string): Promise<string[]> => ipcRenderer.invoke('app/downloader/list', folder),
+  search: (query: string): Promise<any[]> => ipcRenderer.invoke('app/downloader/search', query),
+  getYtdlpStatus: (): Promise<{ ready: boolean; downloading: boolean; error: string | null }> => ipcRenderer.invoke('app/downloader/ytdlp-status'),
+  getFormats: (): Promise<Record<string, { label: string; ext: string }>> => ipcRenderer.invoke('app/downloader/formats'),
+  onProgress: (callback: (_: unknown, data: any) => void) => ipcRenderer.on('downloader/progress', callback),
+  removeOnProgress: (callback: (_: unknown, data: any) => void) => ipcRenderer.removeListener('downloader/progress', callback),
+  onYtdlpStatus: (callback: (_: unknown, data: any) => void) => ipcRenderer.on('downloader/ytdlp-status', callback),
+  removeOnYtdlpStatus: (callback: (_: unknown, data: any) => void) => ipcRenderer.removeListener('downloader/ytdlp-status', callback),
+};
+
 //  $ USER SETTINGS
 const settings = {
   getUserSettings: (): Promise<UserSettings> => ipcRenderer.invoke('app/getUserSettings'),
@@ -607,6 +621,7 @@ export const api = {
   battery,
   fullscreen,
   search,
+  downloader,
   lyrics,
   messages,
   dataUpdates,

@@ -721,7 +721,8 @@
 
   "sideBar": {
     "home": "হোম",
-    "search": "সন্ধান"
+    "search": "সন্ধান",
+    "download": "ডাউনলোড"
   },
 
   "renamePlaylistPrompt": {

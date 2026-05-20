@@ -215,6 +215,9 @@ export function useDynamicTheme(): UseDynamicThemeReturn {
   // Monitor dark mode setting and apply/remove 'dark' class on document.body
   const { data: userSettings } = useSuspenseQuery(settingsQuery.all);
   const isDarkMode = userSettings.isDarkMode;
+  const isOpenDyslexicFontEnabled = useStore(store, (state) =>
+    state.localStorage.preferences.enableOpenDyslexicFont
+  );
 
   useEffect(() => {
     if (isDarkMode) {
@@ -223,6 +226,14 @@ export function useDynamicTheme(): UseDynamicThemeReturn {
       document.body.classList.remove('dark');
     }
   }, [isDarkMode]);
+
+  useEffect(() => {
+    if (isOpenDyslexicFontEnabled) {
+      document.body.classList.add('open-dyslexic');
+    } else {
+      document.body.classList.remove('open-dyslexic');
+    }
+  }, [isOpenDyslexicFontEnabled]);
 
   return {
     setDynamicThemesFromSongPalette,

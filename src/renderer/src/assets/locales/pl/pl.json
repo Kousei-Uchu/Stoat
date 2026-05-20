@@ -729,7 +729,8 @@
 
   "sideBar": {
     "home": "Start",
-    "search": "Szukaj"
+    "search": "Szukaj",
+    "download": "Pobierz"
   },
 
   "renamePlaylistPrompt": {

@@ -730,7 +730,8 @@
 
   "sideBar": {
     "home": "Home",
-    "search": "Search"
+    "search": "Search",
+    "download": "Download"
   },
 
   "renamePlaylistPrompt": {

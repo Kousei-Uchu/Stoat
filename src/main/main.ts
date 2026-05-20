@@ -40,6 +40,7 @@ import addWatchersToParentFolders from './fs/addWatchersToParentFolders';
 import { closeAllAbortControllers, saveAbortController } from './fs/controlAbortControllers';
 import { handleFileProtocol } from './handleFileProtocol';
 import { initializeIPC } from './ipc';
+import { setMainWindowRef, ensureYtdlp } from './downloader';
 import logger from './logger';
 import { clearTempArtworkFolder } from './other/artworks';
 import { clearDiscordRpcActivity } from './other/discordRPC';
@@ -252,6 +253,9 @@ const createWindow = async () => {
       addWatchersToFolders();
       addWatchersToParentFolders();
     }
+    // Start yt-dlp setup in background — downloads the binary on first launch
+    setMainWindowRef(mainWindow);
+    ensureYtdlp().catch(() => { /* status broadcast via IPC */ });
   });
   mainWindow.webContents.setWindowOpenHandler((data: { url: string }) => {
     shell.openExternal(data.url);

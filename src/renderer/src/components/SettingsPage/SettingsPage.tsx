@@ -12,6 +12,7 @@ import DefaultPageSettings from './Settings/DefaultPageSettings';
 import EqualizerSettings from './Settings/EqualizerSettings';
 import LanguageSettings from './Settings/LanguageSettings';
 import LyricsSettings from './Settings/LyricsSettings';
+import DownloadSettings from './Settings/DownloadSettings';
 import PerformanceSettings from './Settings/PerformanceSettings';
 import PreferencesSettings from './Settings/PreferencesSettings';
 import StartupSettings from './Settings/StartupSettings';
@@ -38,6 +39,9 @@ const SettingsPage = () => {
 
           {/* ? ACCOUNTS SETTINGS */}
           <AccountsSettings />
+
+          {/* ? DOWNLOAD SETTINGS */}
+          <DownloadSettings />
 
           {/* ? LYRICS SETTINGS */}
           <LyricsSettings />

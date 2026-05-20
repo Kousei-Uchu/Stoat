@@ -106,6 +106,15 @@ import {
   searchSongMetadataResultsInInternet
 } from './utils/fetchSongMetadataFromInternet';
 import { getQueueInfo } from './utils/getQueueInfo';
+import {
+  cancelDownload,
+  listDownloads,
+  startDownload,
+  search as downloaderSearch,
+  getYtdlpStatus,
+  DOWNLOAD_FORMATS,
+  type DownloadOptions,
+} from './downloader';
 import getTranslatedLyrics from './utils/getTranslatedLyrics';
 import resetLyrics from './utils/resetLyrics';
 import romanizeLyrics from './utils/romanizeLyrics';
@@ -366,6 +375,21 @@ export function initializeIPC(mainWindow: BrowserWindow, abortSignal: AbortSigna
       (_, source: SongMetadataSource, sourceId: string) =>
         fetchSongMetadataFromInternet(source, sourceId)
     );
+
+    ipcMain.handle('app/downloader/start', (_, options: DownloadOptions) =>
+      startDownload(mainWindow, options)
+    );
+
+    ipcMain.handle('app/downloader/cancel', (_, downloadId: string) => cancelDownload(downloadId));
+
+    ipcMain.handle('app/downloader/list', (_, folder?: string) => listDownloads(folder));
+
+    ipcMain.handle('app/downloader/search', (_, query: string) => downloaderSearch(query));
+
+    ipcMain.handle('app/downloader/ytdlp-status', () => getYtdlpStatus());
+
+    ipcMain.handle('app/downloader/formats', () => DOWNLOAD_FORMATS);
+
 
     ipcMain.handle(
       'app/getArtistData',

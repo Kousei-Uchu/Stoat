@@ -201,6 +201,16 @@ declare global {
 
   type PlayerTypes = 'normal' | 'mini' | 'full';
 
+  interface DownloadOptions {
+    url: string;
+    format?: string;
+    quality?: string;
+    destination?: string;
+    provider?: 'youtube' | 'ytmusic' | 'soundcloud' | 'spotify' | 'generic';
+    extractAudio?: boolean;
+    searchQuery?: string;
+  }
+
   type PlayerVolume = { isMuted: boolean; value: number };
   interface Player {
     isCurrentSongPlaying: boolean;
@@ -511,6 +521,22 @@ declare global {
     enableImageBasedDynamicThemes: boolean;
     autoTranslateLyrics: boolean;
     autoConvertLyrics: boolean;
+    enableDownloaderFeatures: boolean;
+    downloadFolder: string;
+    enableYoutubeAuth: boolean;
+    enableSpotifyAuth: boolean;
+    enableSoundcloudAuth: boolean;
+    youtubeApiKey: string;
+    spotifyClientId: string;
+    spotifyClientSecret: string;
+    soundcloudClientId: string;
+    enableOpenDyslexicFont: boolean;
+    enableCrossfade: boolean;
+    crossfadeDuration: number;
+    enableLoudnessNormalization: boolean;
+    enableDjMode: boolean;
+    djProvider: string;
+    djModel: string;
   }
 
   interface CurrentSong {
@@ -1342,6 +1368,9 @@ declare global {
     index: number;
     isActive: boolean;
   }
+
+declare module 'yt-dlp-wrap';
+declare module 'ffmpeg-static';
 
   type Routes = 'lyrics-editor';
   type LyricsEditorRouteState = { songId: number; lyrics?: LyricData[] };

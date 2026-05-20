@@ -33,6 +33,14 @@ const Sidebar = memo(() => {
           isActive: false
         },
         {
+          to: '/main-player/download',
+          id: 'Download',
+          parentClassName: 'download',
+          icon: 'download',
+          content: t('sideBar.download') || 'Download',
+          isActive: false
+        },
+        {
           to: '/main-player/songs',
           id: 'Songs',
           parentClassName: 'songs',

@@ -9,3 +9,4 @@ coverage/
 *.m3u
 .npmrc
 .github/plans/
+*.zip

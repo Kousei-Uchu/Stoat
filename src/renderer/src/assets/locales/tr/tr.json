@@ -627,7 +627,8 @@
   },
   "sideBar": {
     "home": "Ana Sayfa",
-    "search": "Ara"
+    "search": "Ara",
+    "download": "İndir"
   },
   "renamePlaylistPrompt": {
     "renamePlaylistWithName": "'{{ name }}' oynatma listesini yeniden adlandır",

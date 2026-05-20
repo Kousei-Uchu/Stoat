@@ -397,7 +397,23 @@ export const LOCAL_STORAGE_DEFAULT_TEMPLATE: LocalStorage = {
     enableImageBasedDynamicThemes: false,
     doNotShowHelpPageOnLyricsEditorStartUp: false,
     autoTranslateLyrics: false,
-    autoConvertLyrics: false
+    autoConvertLyrics: false,
+    enableDownloaderFeatures: true,
+    downloadFolder: '',
+    enableYoutubeAuth: false,
+    enableSpotifyAuth: false,
+    enableSoundcloudAuth: false,
+    youtubeApiKey: '',
+    spotifyClientId: '',
+    spotifyClientSecret: '',
+    soundcloudClientId: '',
+    enableOpenDyslexicFont: false,
+    enableCrossfade: false,
+    crossfadeDuration: 5,
+    enableLoudnessNormalization: false,
+    enableDjMode: false,
+    djProvider: 'none',
+    djModel: 'local'
   },
   playback: {
     currentSong: {

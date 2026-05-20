@@ -30,6 +30,20 @@ const AccessibilitySettings = () => {
             }
           />
         </li>
+        <li className="secondary-container toggle-open-dyslexic mb-4">
+          <div className="description">
+            {t('settingsPage.openDyslexicDescription') ||
+              'Use the OpenDyslexic font to improve readability for dyslexic users.'}
+          </div>
+          <Checkbox
+            id="enableOpenDyslexicFont"
+            labelContent={t('settingsPage.enableOpenDyslexicFont') || 'Enable OpenDyslexic font'}
+            isChecked={preferences?.enableOpenDyslexicFont}
+            checkedStateUpdateFunction={(state) =>
+              storage.preferences.setPreferences('enableOpenDyslexicFont', state)
+            }
+          />
+        </li>
       </ul>
     </li>
   );
