@@ -41,7 +41,7 @@ const SongLyricsEditorInput = (props: Props) => {
 
   const {
     songTitle,
-    songId,
+    // songId,
     songArtists,
     synchronizedLyrics,
     unsynchronizedLyrics,
@@ -186,11 +186,11 @@ const SongLyricsEditorInput = (props: Props) => {
         params: { songId: String(songId) },
         search: {
           songTitle,
-          isEditingEnhancedSyncedLyrics: currentLyricsType === 'synced' && isSynchronizedLyricsEnhancedSynced,
+          isEditingEnhancedSyncedLyrics: currentLyricsType === 'synced' && isLyricsEnhancedSynced,
         },
       });
     }
-  }, [synchronizedLyrics, unsynchronizedLyrics, navigate, songId, songTitle, currentLyricsType, isSynchronizedLyricsEnhancedSynced]);
+  }, [synchronizedLyrics, unsynchronizedLyrics, navigate, songId, songTitle, currentLyricsType, isLyricsEnhancedSynced]);
 
   return (
     <div className="song-lyrics-editor-container col-span-2 grid w-[95%] grid-cols-[minmax(50%,65%)_1fr] gap-8">

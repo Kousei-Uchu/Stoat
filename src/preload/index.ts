@@ -323,6 +323,8 @@ const downloader = {
   removeOnProgress: (callback: (_: unknown, data: any) => void) => ipcRenderer.removeListener('downloader/progress', callback),
   onYtdlpStatus: (callback: (_: unknown, data: any) => void) => ipcRenderer.on('downloader/ytdlp-status', callback),
   removeOnYtdlpStatus: (callback: (_: unknown, data: any) => void) => ipcRenderer.removeListener('downloader/ytdlp-status', callback),
+  registerSong: (audioPath: string): Promise<{ success: boolean; action?: string; reason?: string }> =>
+    ipcRenderer.invoke('app/downloader/register-song', audioPath),
 };
 
 //  $ USER SETTINGS

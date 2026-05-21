@@ -106,6 +106,17 @@ export function useKeyboardShortcuts(dependencies: KeyboardShortcutDependencies)
 
   const manageKeyboardShortcuts = useCallback(
     (e: KeyboardEvent) => {
+      // Don't trigger shortcuts when the user is typing in an input, textarea, or contenteditable
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable ||
+        target.closest('[role="textbox"]')
+      ) {
+        return;
+      }
+
       const shortcuts = storage.keyboardShortcuts
         .getKeyboardShortcuts()
         .flatMap((category) => category.shortcuts);
@@ -241,10 +252,10 @@ export function useKeyboardShortcuts(dependencies: KeyboardShortcutDependencies)
             navigate({ to: '/main-player/home' });
             break;
           case i18n.t('appShortcutsPrompt.goBack'):
-            // TODO: Implement page history back navigation.
+            window.history.back();
             break;
           case i18n.t('appShortcutsPrompt.goForward'):
-            // TODO: Implement page history forward navigation.
+            window.history.forward();
             break;
           case i18n.t('appShortcutsPrompt.openMiniPlayer'):
             updatePlayerType(store.state.playerType === 'mini' ? 'normal' : 'mini');

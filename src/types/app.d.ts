@@ -209,20 +209,6 @@ declare global {
     provider?: 'youtube' | 'ytmusic' | 'soundcloud' | 'spotify' | 'generic';
     extractAudio?: boolean;
     searchQuery?: string;
-    // Metadata from search results
-    title?: string;
-    artist?: string;
-    album?: string;
-    albumArtist?: string;
-    year?: string;
-    trackNumber?: string;
-    genres?: string[];
-    // Batch download
-    isBatch?: boolean;
-    batchId?: string;
-    // Extra options
-    downloadLyrics?: boolean;
-    spotifyLyrics?: string;
   }
 
   type PlayerVolume = { isMuted: boolean; value: number };
@@ -551,19 +537,6 @@ declare global {
     enableDjMode: boolean;
     djProvider: string;
     djModel: string;
-    'dj.enabled': boolean;
-      defaultDownloadFormat: string;
-      downloadLyricsDefault: boolean;
-    'dj.mood': 'auto' | 'chill' | 'energetic' | 'focus' | 'party' | 'sad';
-    'dj.crossfadeSec': number;
-    'dj.loudnessNorm': boolean;
-    'dj.ttsEnabled': boolean;
-    'dj.ttsVoice': string;
-    'dj.ttsRate': number;
-    'dj.ttsPitch': number;
-    'dj.ttsVolume': number;
-    'dj.announcementStyle': 'minimal' | 'friendly' | 'hype' | 'trivia';
-    'dj.announceOnEvery': number;
   }
 
   interface CurrentSong {

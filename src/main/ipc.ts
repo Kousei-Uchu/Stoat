@@ -96,6 +96,8 @@ import getSimilarTracks from './other/lastFm/getSimilarTracks';
 import scrobbleSong from './other/lastFm/scrobbleSong';
 import sendNowPlayingSongDataToLastFM from './other/lastFm/sendNowPlayingSongDataToLastFM';
 import reParseSong from './parseSong/reParseSong';
+import { tryToParseSong } from './parseSong/parseSong';
+import { getSongByPath } from './db/queries/songs';
 import saveLyricsToSong from './saveLyricsToSong';
 import search from './search';
 import updateSongId3Tags, { isMetadataUpdatesPending } from './updateSong/updateSongId3Tags';
@@ -398,6 +400,37 @@ export function initializeIPC(mainWindow: BrowserWindow, abortSignal: AbortSigna
 
     ipcMain.handle('app/downloader/is-spotify', (_, url: string) =>
       isSpotifyUrl(url)
+    );
+
+    /**
+     * Called by the renderer after a download finishes.
+     * 1. Parses the new audio file into the DB (so it shows up in the library).
+     * 2. If an .lrc file exists alongside it, the next call to getSongLyrics will
+     *    find it automatically via fetchLyricsFromLRCFile — no extra registration needed
+     *    because that function looks for <songPath>.lrc next to the audio file.
+     * 3. If the song is already in the DB (re-download), reParseSong is called to
+     *    sync any updated metadata tags.
+     */
+    ipcMain.handle(
+      'app/downloader/register-song',
+      async (_, audioPath: string) => {
+        if (!audioPath) return { success: false, reason: 'no path' };
+        try {
+          const existing = await getSongByPath(audioPath);
+          if (existing) {
+            // Song already in library — resync tags (covers re-downloads)
+            await reParseSong(audioPath);
+            return { success: true, action: 'reparsed' };
+          }
+          // Brand-new file — parse it into the library.
+          // tryToParseSong returns undefined if the path is already queued (safe to ignore).
+          const parsePromise = tryToParseSong(audioPath);
+          if (parsePromise) await parsePromise;
+          return { success: true, action: 'parsed' };
+        } catch (err: any) {
+          return { success: false, reason: err?.message ?? String(err) };
+        }
+      }
     );
 
 

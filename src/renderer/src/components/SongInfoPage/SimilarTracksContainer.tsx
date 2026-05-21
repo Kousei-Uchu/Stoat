@@ -32,14 +32,6 @@ const SimilarTracksContainer = (props: Props) => {
     }
   });
 
-  if (!similarTracks) {
-    return (
-      <div className="w-full py-4 text-sm text-font-color-black/55 dark:text-font-color-white/55">
-        {t('songInfoPage.similarTracksUnavailable') || 'Similar tracks unavailable.'}
-      </div>
-    );
-  }
-
   const handleSongPlayBtnClick = useCallback(
     (startSongId?: number) => {
       const songs = similarTracks.sortedAvailTracks.map((song) => song.songData!);

@@ -38,7 +38,7 @@ const SongUnplayableErrorPrompt = lazy(() => import('./components/SongUnplayable
 // ? SCREENS
 
 // import { TanStackRouterDevtools } from '@tanstack/react-router-devtools';
-import { Outlet } from '@tanstack/react-router';
+import { Outlet, useNavigate } from '@tanstack/react-router';
 
 // ? UTILS
 import { dispatch, store } from './store/store';
@@ -213,11 +213,20 @@ export default function App() {
     playSong
   });
 
+  const navigate = useNavigate();
+
   const updatePlayerType = useCallback((type: PlayerTypes) => {
-    if (store.state.playerType !== type) {
+    const prevType = store.state.playerType;
+    if (prevType !== type) {
       dispatch({ type: 'UPDATE_PLAYER_TYPE', data: type });
     }
-  }, []);
+    if (type === 'full') {
+      navigate({ to: '/fullscreen-player/' });
+    } else if (prevType === 'full') {
+      // Returning from fullscreen — go back to main player
+      navigate({ to: '/main-player/home' });
+    }
+  }, [navigate]);
 
   // ? INITIALIZE MEDIA SESSION
   // Media session hook handles OS-level media controls and browser media notifications

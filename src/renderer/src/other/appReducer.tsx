@@ -413,20 +413,7 @@ export const LOCAL_STORAGE_DEFAULT_TEMPLATE: LocalStorage = {
     enableLoudnessNormalization: false,
     enableDjMode: false,
     djProvider: 'none',
-    djModel: 'local',
-    defaultDownloadFormat: 'mp3_320',
-    downloadLyricsDefault: true,
-    'dj.enabled': false,
-    'dj.mood': 'auto',
-    'dj.crossfadeSec': 4,
-    'dj.loudnessNorm': true,
-    'dj.ttsEnabled': true,
-    'dj.ttsVoice': 'default',
-    'dj.ttsRate': 1.0,
-    'dj.ttsPitch': 1.0,
-    'dj.ttsVolume': 0.85,
-    'dj.announcementStyle': 'friendly',
-    'dj.announceOnEvery': 3
+    djModel: 'local'
   },
   playback: {
     currentSong: {
