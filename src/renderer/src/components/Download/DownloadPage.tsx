@@ -19,19 +19,6 @@ interface SearchResult {
   matchScore?: number;
 }
 
-interface SpotifyTrackMeta {
-  id: string;
-  title: string;
-  artist: string;
-  album: string;
-  albumArtist: string;
-  year: string;
-  trackNumber: string;
-  duration: number;
-  genres: string[];
-  albumCover?: string;
-}
-
 interface YtDlpStatus {
   ready: boolean;
   downloading: boolean;
@@ -504,6 +491,7 @@ export default function DownloadPage() {
     opus:    { label: 'Opus', ext: 'opus' },
   });
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [spotifyResolveError, setSpotifyResolveError] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<DownloadJobStatus>({ kind: 'idle' });
   const [ytdlpStatus, setYtdlpStatus] = useState<YtDlpStatus | null>(null);
   const [activeUrl, setActiveUrl] = useState<string | null>(null);
@@ -613,11 +601,34 @@ export default function DownloadPage() {
         const res = await window.api.downloader.search(value.trim());
         setResults((res as SearchResult[]) ?? []);
         setJobStatus({ kind: 'idle' });
+        setSpotifyResolveError(null);
       } catch (err: any) {
         setJobStatus({ kind: 'error', message: err?.message ?? 'Search failed' });
       }
     }, 400);
   }, []);
+
+  // If the query is a Spotify URL, attempt to resolve metadata early to detect network/blocking issues
+  useEffect(() => {
+    let cancelled = false;
+    async function tryResolve() {
+      if (!isUrlMode || !query.trim()) return setSpotifyResolveError(null);
+      if (!(urlKind === 'spotify_track' || urlKind === 'spotify_album' || urlKind === 'spotify_playlist' || urlKind === 'spotify_artist')) {
+        setSpotifyResolveError(null);
+        return;
+      }
+      try {
+        setSpotifyResolveError(null);
+        await window.api.downloader.resolveSpotify(query.trim());
+      } catch (err: any) {
+        if (cancelled) return;
+        const msg = err?.message || 'Failed to resolve Spotify URL. Network may be blocking Spotify.';
+        setSpotifyResolveError(msg);
+      }
+    }
+    tryResolve();
+    return () => { cancelled = true; };
+  }, [isUrlMode, query, urlKind]);
 
   // ── Download ───────────────────────────────────────────────────────────────
   const startDownload = useCallback(
@@ -758,6 +769,53 @@ export default function DownloadPage() {
             active={downloadLyrics}
             onClick={() => setDownloadLyrics((v) => !v)}
           />
+
+          {spotifyResolveError && (
+            <div className="ml-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600">
+              <div className="flex items-center gap-2">
+                <span className="material-icons-round">warning</span>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium">Spotify lookup failed</p>
+                  <p className="text-[11px] opacity-70">{spotifyResolveError}</p>
+                </div>
+                <div className="ml-4">
+                  <button
+                    onClick={async () => {
+                      try {
+                        setJobStatus({ kind: 'resolving', text: 'Using local render-service…' });
+                        const resp = await fetch('http://localhost:3001/api/download', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ url: query.trim(), format: format })
+                        });
+                        const data = await resp.json();
+                        if (resp.ok && data.ok) {
+                          setJobStatus({ kind: 'done', filename: data.path ?? undefined });
+                          setRecentDownloads((prev) => [
+                            {
+                              id: String(Date.now()),
+                              title: query.trim(),
+                              timestamp: Date.now(),
+                              status: 'done',
+                              filename: undefined,
+                            },
+                            ...prev.slice(0, 49),
+                          ]);
+                        } else {
+                          setJobStatus({ kind: 'error', message: data.error || 'Render service failed' });
+                        }
+                      } catch (err: any) {
+                        setJobStatus({ kind: 'error', message: err?.message ?? 'Render service error' });
+                      }
+                    }}
+                    className="ml-2 rounded bg-font-color-highlight/10 px-2 py-1 text-xs text-font-color-highlight"
+                  >
+                    Use local render-service
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {isUrlMode && (
             <button

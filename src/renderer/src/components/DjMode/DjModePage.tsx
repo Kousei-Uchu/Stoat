@@ -8,11 +8,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useStore } from '@tanstack/react-store';
 import { store } from '@renderer/store/store';
-import { useContext } from 'react';
-import { AppUpdateContext } from '../../contexts/AppUpdateContext';
 import MainContainer from '../MainContainer';
 import TitleContainer from '../TitleContainer';
 import storage from '../../utils/localStorage';
@@ -291,7 +288,6 @@ function NowPlayingBanner({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function DjModePage() {
-  const { t } = useTranslation();
   const currentSong = useStore(store, (s) => s.currentSongData);
 
   const [dj, setDjRaw] = useState<DjState>(loadDjState);

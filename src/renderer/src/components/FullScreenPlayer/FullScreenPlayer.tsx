@@ -38,6 +38,17 @@ const FullScreenPlayer = () => {
     return () => window.api.appControls.allowScreenSleeping();
   }, [preferences.allowToPreventScreenSleeping, preferences.removeAnimationsOnBatteryPower]);
 
+  useEffect(() => {
+    // diagnostic: log when fullscreen player mounts to help debug visibility issues
+    // removed in production builds if not needed
+    try {
+      // eslint-disable-next-line no-console
+      console.debug('FullScreenPlayer mounted', { songId: currentSongData?.songId });
+    } catch {}
+  }, []);
+
+  const isDev = typeof import.meta !== 'undefined' ? import.meta.env.MODE === 'development' : false;
+
   const imgPath = useMemo(() => {
     const selectedArtist = currentSongData?.artists?.find(
       (artist) => !!artist.onlineArtworkPaths?.picture_xl
@@ -54,6 +65,13 @@ const FullScreenPlayer = () => {
         preferences?.isReducedMotion ? 'reduced-motion' : ''
       } grid !h-screen w-full grid-rows-[auto_1fr] overflow-y-hidden`}
     >
+      {isDev && (
+        <div className="fixed top-4 right-4 z-[9999] rounded bg-black/60 p-2 text-xs text-white">
+          <div>FullScreenPlayer (debug)</div>
+          <div>songId: {currentSongData?.songId ?? '—'}</div>
+          <div>playing: {String(isCurrentSongPlaying)}</div>
+        </div>
+      )}
       <div className="background-cover-img-container absolute top-0 left-0 h-full w-full">
         <Img
           src={imgPath}

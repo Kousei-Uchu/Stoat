@@ -8,15 +8,16 @@
  * (no CORS issues, no API key required).
  *
  * Spotify URL support: resolves Spotify tracks/albums/playlists/artists
- * via the public Spotify metadata API (no login required) then smart-matches
- * on YouTube Music using spotdl-style confidence scoring to avoid wrong versions.
+ * via Spotifly (no Spotify auth required), then smart-matches on YouTube Music
+ * using spotdl-style confidence scoring to avoid wrong versions.
  */
 
 import { app, BrowserWindow } from 'electron';
-import { existsSync, mkdirSync, readdirSync, chmodSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, chmodSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import https from 'node:https';
+import { Spotifly } from 'spotifly';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,7 @@ export interface DownloadOptions {
   batchId?: string;
   // Extra options
   downloadLyrics?: boolean;
+  spotifyLyrics?: string;
 }
 
 export interface SpotifyTrackMeta {
@@ -129,21 +131,14 @@ const YT_CONTEXT = {
   client: { clientName: 'WEB', clientVersion: '2.20240101.00.00', hl: 'en', gl: 'US' },
 };
 
-// ─── Spotify constants ────────────────────────────────────────────────────────
+// ─── Spotifly client ───────────────────────────────────────────────────────────
 
-// Spotify's public token endpoint used by the web player (no login required)
-const SPOTIFY_TOKEN_URL = 'https://open.spotify.com/get_access_token?reason=transport&productType=web_player';
-const SPOTIFY_API_BASE = 'https://api.spotify.com/v1';
-
-let spotifyToken: string | null = null;
-let spotifyTokenExpiry = 0;
+const spotifly = new Spotifly();
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
 const downloadTasks = new Map<string, DownloadTask>();
-const batchQueues = new Map<string, BatchDownloadItem[]>();
 
-let ytdlpBinaryPath: string | null = null;
 let ytdlpStatus: YtDlpStatus = { ready: false, downloading: false, error: null };
 let mainWindowRef: BrowserWindow | null = null;
 
@@ -318,8 +313,7 @@ export async function ensureYtdlp(): Promise<string> {
   const binPath = getYtdlpPath();
 
   if (existsSync(binPath)) {
-    ytdlpBinaryPath = binPath;
-    ytdlpStatus = { ready: true, downloading: false, error: null };
+
     sendYtdlpStatus();
     return binPath;
   }
@@ -330,7 +324,6 @@ export async function ensureYtdlp(): Promise<string> {
   try {
     mkdirSync(getYtdlpDir(), { recursive: true });
     await downloadBinaryFromGithub(binPath);
-    ytdlpBinaryPath = binPath;
     ytdlpStatus = { ready: true, downloading: false, error: null };
     sendYtdlpStatus();
     return binPath;
@@ -351,48 +344,6 @@ export function setMainWindowRef(win: BrowserWindow) {
 
 // ─── Spotify API helpers ──────────────────────────────────────────────────────
 
-/** Get a public Spotify access token (no login required — same token web player uses) */
-async function getSpotifyToken(): Promise<string> {
-  const now = Date.now();
-  if (spotifyToken && now < spotifyTokenExpiry - 30_000) return spotifyToken;
-
-  try {
-    const res = await httpsGet(SPOTIFY_TOKEN_URL, {
-      'Accept': 'application/json',
-      'Referer': 'https://open.spotify.com/',
-      'Origin': 'https://open.spotify.com',
-    });
-    if (res.statusCode >= 200 && res.statusCode < 300) {
-      const data = JSON.parse(res.body);
-      spotifyToken = data.accessToken as string;
-      // expirationTimestamp is in seconds from epoch
-      spotifyTokenExpiry = (data.accessTokenExpirationTimestampMs as number) || (now + 3600_000);
-      return spotifyToken!;
-    }
-  } catch { /* fall through */ }
-
-  throw new Error('Could not obtain Spotify access token. Try again later.');
-}
-
-async function spotifyGet(path: string): Promise<any> {
-  const token = await getSpotifyToken();
-  let url = path.startsWith('http') ? path : `${SPOTIFY_API_BASE}${path}`;
-  // Follow pagination automatically for 'next' fields
-  const res = await httpsGet(url, { Authorization: `Bearer ${token}` });
-  if (res.statusCode === 401) {
-    // Token expired — refresh once
-    spotifyToken = null;
-    const token2 = await getSpotifyToken();
-    const res2 = await httpsGet(url, { Authorization: `Bearer ${token2}` });
-    return JSON.parse(res2.body);
-  }
-  if (res.statusCode < 200 || res.statusCode >= 300) {
-    throw new Error(`Spotify API ${res.statusCode}: ${path}`);
-  }
-  return JSON.parse(res.body);
-}
-
-/** Parse a Spotify URL and return { type, id } */
 export function parseSpotifyUrl(url: string): { type: 'track' | 'album' | 'playlist' | 'artist'; id: string } | null {
   try {
     const u = new URL(url);
@@ -413,138 +364,134 @@ export function isSpotifyUrl(url: string): boolean {
   return parseSpotifyUrl(url) !== null;
 }
 
-/** Fetch a single Spotify track and its album/artist genres */
-async function fetchSpotifyTrack(trackId: string): Promise<SpotifyTrackMeta> {
-  const track = await spotifyGet(`/tracks/${trackId}`);
-  const albumId = track.album?.id;
-  let genres: string[] = [];
-
-  // Get genres from album + first artist (Spotify attaches genres to artists/albums)
-  try {
-    const [albumData, artistData] = await Promise.all([
-      albumId ? spotifyGet(`/albums/${albumId}`) : Promise.resolve(null),
-      track.artists?.[0]?.id ? spotifyGet(`/artists/${track.artists[0].id}`) : Promise.resolve(null),
-    ]);
-    genres = [
-      ...(albumData?.genres ?? []),
-      ...(artistData?.genres ?? []),
-    ].filter((g, i, arr) => arr.indexOf(g) === i);
-  } catch { /* genres optional */ }
+function parseSpotifyTrackData(track: any): SpotifyTrackMeta {
+  const data = track?.data?.trackUnion ?? track?.data ?? track;
+  const artistItems = data.artistsWithRoles?.items ?? data.artists?.items ?? [];
+  const artists = artistItems.map((item: any) => item.artist?.profile?.name ?? item.profile?.name).filter(Boolean) ?? [];
+  const artistIds = artistItems.map((item: any) => item.artist?.id ?? item.id ?? item.uri?.split(':').pop()).filter(Boolean) ?? [];
+  const albumInfo = data.albumOfTrack ?? data.album ?? {};
+  const albumArtist = (albumInfo.artists?.items ?? []).map((item: any) => item.profile.name).filter(Boolean).join(', ');
+  const coverUrl = albumInfo.coverArt?.sources?.slice(-1)?.[0]?.url ?? '';
+  const year = albumInfo.date?.year ? String(albumInfo.date.year) : (albumInfo.release_date ?? '').slice(0, 4);
 
   return {
-    id: track.id,
-    title: track.name,
-    artist: track.artists?.map((a: any) => a.name).join(', ') ?? '',
-    artistIds: track.artists?.map((a: any) => a.id) ?? [],
-    album: track.album?.name ?? '',
-    albumArtist: track.album?.artists?.[0]?.name ?? '',
-    year: (track.album?.release_date ?? '').slice(0, 4),
-    trackNumber: String(track.track_number ?? ''),
-    discNumber: String(track.disc_number ?? ''),
-    duration: track.duration_ms,
-    isrc: track.external_ids?.isrc,
-    explicit: track.explicit ?? false,
-    genres,
-    albumCover: track.album?.images?.[0]?.url,
+    id: data.id,
+    title: data.name,
+    artist: artists.join(', '),
+    artistIds,
+    album: albumInfo.name ?? '',
+    albumArtist: albumArtist || artists.join(', '),
+    year,
+    trackNumber: String(data.trackNumber ?? data.track_number ?? ''),
+    discNumber: String(data.discNumber ?? data.disc_number ?? ''),
+    duration: data.duration?.totalMilliseconds ?? data.duration_ms ?? 0,
+    isrc: data.isrc ?? data.external_ids?.isrc,
+    explicit: data.explicit ?? false,
+    genres: [],
+    albumCover: coverUrl,
   };
 }
 
-/** Fetch all tracks from a Spotify album */
+async function fetchSpotifyLyrics(trackId: string): Promise<string | null> {
+  try {
+    const lines = await spotifly.getTrackLyrics(trackId);
+    if (!lines || !lines.length) return null;
+    return Array.isArray(lines) ? lines.join('\n') : String(lines);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchSpotifyTrack(trackId: string): Promise<SpotifyTrackMeta> {
+  const track = await spotifly.getTrack(trackId);
+  const trackMeta = parseSpotifyTrackData(track);
+  return { ...trackMeta, genres: [] };
+}
+
 async function fetchSpotifyAlbumTracks(albumId: string): Promise<SpotifyTrackMeta[]> {
-  const album = await spotifyGet(`/albums/${albumId}`);
-  const genres: string[] = album.genres ?? [];
-  const albumName: string = album.name ?? '';
-  const albumArtist: string = album.artists?.[0]?.name ?? '';
-  const year: string = (album.release_date ?? '').slice(0, 4);
-  const coverUrl: string = album.images?.[0]?.url ?? '';
+  const album = await spotifly.getAlbum(albumId, 200);
+  const albumInfo: any = album?.data?.albumUnion ?? {};
+  const albumName = albumInfo.name ?? '';
+  const albumArtist = (albumInfo.artists?.items ?? []).map((item: any) => item.profile.name).filter(Boolean).join(', ') || '';
+  const year = String((albumInfo.date?.isoString ?? '').slice(0, 4));
+  const coverUrl = albumInfo.coverArt?.sources?.slice(-1)?.[0]?.url ?? '';
 
   const tracks: SpotifyTrackMeta[] = [];
-  let page: any = album.tracks;
-
-  while (page) {
-    for (const t of page.items ?? []) {
-      tracks.push({
-        id: t.id,
-        title: t.name,
-        artist: t.artists?.map((a: any) => a.name).join(', ') ?? albumArtist,
-        artistIds: t.artists?.map((a: any) => a.id) ?? [],
-        album: albumName,
-        albumArtist,
-        year,
-        trackNumber: String(t.track_number ?? ''),
-        discNumber: String(t.disc_number ?? ''),
-        duration: t.duration_ms,
-        isrc: t.external_ids?.isrc,
-        explicit: t.explicit ?? false,
-        genres,
-        albumCover: coverUrl,
-      });
-    }
-    if (page.next) {
-      const nextPage = await spotifyGet(page.next);
-      page = nextPage;
-    } else {
-      page = null;
-    }
+  const genres: string[] = [];
+  for (const item of albumInfo.tracks?.items ?? []) {
+    const track = item.track ?? item;
+    const artists = track.artists?.items?.map((artist: any) => artist.profile.name).filter(Boolean) ?? [];
+    const artistIds = track.artists?.items?.map((artist: any) => artist.uri?.split(':').pop()).filter(Boolean) ?? [];
+    tracks.push({
+      id: track.uri?.split(':').pop() ?? '',
+      title: track.name,
+      artist: artists.join(', '),
+      artistIds,
+      album: albumName,
+      albumArtist,
+      year,
+      trackNumber: String(track.trackNumber ?? ''),
+      discNumber: String(track.discNumber ?? ''),
+      duration: track.duration?.totalMilliseconds ?? 0,
+      isrc: undefined,
+      explicit: false,
+      genres,
+      albumCover: coverUrl,
+    });
   }
 
   return tracks;
 }
 
-/** Fetch all tracks from a Spotify playlist */
 async function fetchSpotifyPlaylistTracks(playlistId: string): Promise<SpotifyTrackMeta[]> {
+  const playlist = await spotifly.getPlaylistContents(playlistId, 200);
+  const items = playlist?.data?.playlistV2?.content?.items ?? [];
   const tracks: SpotifyTrackMeta[] = [];
-  let url: string | null = `/playlists/${playlistId}/tracks?limit=100`;
 
-  while (url) {
-    const page: any = await spotifyGet(url);
-    for (const item of page.items ?? []) {
-      const t = item.track;
-      if (!t || t.type !== 'track') continue;
-      // fetch genres from artist (may be slow for large playlists — skip for perf)
-      tracks.push({
-        id: t.id,
-        title: t.name,
-        artist: t.artists?.map((a: any) => a.name).join(', ') ?? '',
-        artistIds: t.artists?.map((a: any) => a.id) ?? [],
-        album: t.album?.name ?? '',
-        albumArtist: t.album?.artists?.[0]?.name ?? '',
-        year: (t.album?.release_date ?? '').slice(0, 4),
-        trackNumber: String(t.track_number ?? ''),
-        discNumber: String(t.disc_number ?? ''),
-        duration: t.duration_ms,
-        isrc: t.external_ids?.isrc,
-        explicit: t.explicit ?? false,
-        genres: [],
-        albumCover: t.album?.images?.[0]?.url,
-      });
-    }
-    url = page.next ?? null;
+  for (const item of items) {
+    const track = item?.itemV2?.data;
+    if (!track) continue;
+    const artists = track.artists?.items?.map((artist: any) => artist.profile.name).filter(Boolean) ?? [];
+    const artistIds = track.artists?.items?.map((artist: any) => artist.uri?.split(':').pop()).filter(Boolean) ?? [];
+    const albumInfo: any = track.albumOfTrack ?? {};
+    const coverUrl = albumInfo.coverArt?.sources?.slice(-1)?.[0]?.url ?? '';
+    tracks.push({
+      id: track.uri?.split(':').pop() ?? '',
+      title: track.name,
+      artist: artists.join(', '),
+      artistIds,
+      album: albumInfo.name ?? '',
+      albumArtist: (albumInfo.artists?.items ?? []).map((artist: any) => artist.profile.name).filter(Boolean).join(', ') || artists.join(', '),
+      year: String((albumInfo.date?.isoString ?? '').slice(0, 4)),
+      trackNumber: String(track.trackNumber ?? ''),
+      discNumber: String(track.discNumber ?? ''),
+      duration: track.trackDuration?.totalMilliseconds ?? 0,
+      isrc: undefined,
+      explicit: false,
+      genres: [],
+      albumCover: coverUrl,
+    });
   }
 
   return tracks;
 }
 
-/** Fetch all albums for a Spotify artist, then all tracks */
 async function fetchSpotifyArtistTracks(artistId: string): Promise<SpotifyTrackMeta[]> {
+  const artist = await spotifly.getArtist(artistId);
+  const artistData = artist?.data?.artistUnion ?? {};
+  const discographyAlbums = artistData?.discography?.albums?.items ?? [];
+  const albumIds: string[] = discographyAlbums.slice(0, 20).flatMap((album: any) => {
+    const id = album?.uri?.split(':').pop();
+    return id ? [id] : [];
+  });
+
   const tracks: SpotifyTrackMeta[] = [];
-  let url: string | null = `/artists/${artistId}/albums?include_groups=album,single&limit=50`;
-
-  const albumIds: string[] = [];
-  while (url) {
-    const page: any = await spotifyGet(url);
-    for (const a of page.items ?? []) albumIds.push(a.id);
-    url = page.next ?? null;
-  }
-
-  for (const albumId of albumIds) {
+  for (const id of albumIds) {
     try {
-      const albumTracks = await fetchSpotifyAlbumTracks(albumId);
-      tracks.push(...albumTracks);
+      tracks.push(...await fetchSpotifyAlbumTracks(id));
     } catch { /* skip failed album */ }
   }
 
-  // Deduplicate by ISRC if present, else by title+artist
   const seen = new Set<string>();
   return tracks.filter((t) => {
     const key = t.isrc ?? `${t.title.toLowerCase()}::${t.artist.toLowerCase()}`;
@@ -933,7 +880,7 @@ function convertSubsToLrc(
   baseName: string,
   destination: string
 ): string | null {
-  const { readdirSync: rd, readFileSync: rf, writeFileSync: wf } =
+  const { readdirSync: rd, readFileSync: rf } =
     require('node:fs') as typeof import('node:fs');
 
   let lrcContent: string | null = null;
@@ -1102,8 +1049,18 @@ async function runYtdlpDownload(
   // Convert subtitles → LRC
   let lrcPath: string | null = null;
   if (options.downloadLyrics !== false && lastFile) {
-    const baseName = lastFile.replace(/\.[^.]+$/, '');
-    lrcPath = convertSubsToLrc(baseName, destination);
+    const baseName = String(lastFile).replace(/\.[^.]+$/, '');
+    if (options.spotifyLyrics?.trim()) {
+      const spotifyLyrics = options.spotifyLyrics.trim();
+      try {
+        writeFileSync(`${baseName}.lrc`, spotifyLyrics, 'utf-8');
+        lrcPath = `${baseName}.lrc`;
+      } catch {
+        lrcPath = convertSubsToLrc(baseName, destination);
+      }
+    } else {
+      lrcPath = convertSubsToLrc(baseName, destination);
+    }
     if (lrcPath) task.lrcPath = lrcPath;
   }
 
@@ -1154,6 +1111,10 @@ export async function startDownload(
           const match = await findBestYouTubeMatch(meta);
           if (!match) throw new Error('Could not find a matching YouTube video for this track.');
 
+          const spotifyLyrics = options.downloadLyrics !== false
+            ? await fetchSpotifyLyrics(parsed.id)
+            : null;
+
           await runYtdlpDownload(
             task,
             {
@@ -1166,6 +1127,7 @@ export async function startDownload(
               year: meta.year,
               trackNumber: meta.trackNumber,
               genres: meta.genres,
+              spotifyLyrics: spotifyLyrics ?? undefined,
             },
             binPath
           );
@@ -1211,6 +1173,10 @@ export async function startDownload(
               progress: 0,
               status: 'pending',
             };
+            const spotifyLyrics = options.downloadLyrics !== false
+              ? await fetchSpotifyLyrics(meta.id)
+              : null;
+
             await runYtdlpDownload(
               subTask,
               {
@@ -1223,6 +1189,7 @@ export async function startDownload(
                 year: meta.year,
                 trackNumber: meta.trackNumber,
                 genres: meta.genres,
+                spotifyLyrics: spotifyLyrics ?? undefined,
                 isBatch: true,
                 batchId: id,
               },
@@ -1289,9 +1256,6 @@ export async function listDownloads(folder?: string): Promise<string[]> {
 
 // ─── Misc helpers ─────────────────────────────────────────────────────────────
 
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 function shellescape(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;

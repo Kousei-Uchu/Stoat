@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Nora Render Service</title>
+    <style>
+      body{font-family:system-ui,Arial;margin:24px}
+      input,button{padding:8px;font-size:14px}
+      .box{margin-top:12px}
+    </style>
+  </head>
+  <body>
+    <h1>Nora Render Service</h1>
+    <p>Resolve Spotify links and optionally download via yt-dlp.</p>
+    <div>
+      <input id="url" placeholder="Spotify/YouTube URL" style="width:60%" />
+      <button id="resolve">Resolve</button>
+      <button id="download">Download</button>
+    </div>
+    <pre id="out" class="box"></pre>
+    <script>
+      const out = document.getElementById('out');
+      document.getElementById('resolve').onclick = async () => {
+        out.textContent = 'Resolving...';
+        const url = document.getElementById('url').value;
+        const r = await fetch('/api/resolve', { method: 'POST', headers: { 'content-type':'application/json' }, body: JSON.stringify({ url }) });
+        const j = await r.json();
+        out.textContent = JSON.stringify(j, null, 2);
+      };
+      document.getElementById('download').onclick = async () => {
+        out.textContent = 'Downloading... (server must have yt-dlp installed)';
+        const url = document.getElementById('url').value;
+        const r = await fetch('/api/download', { method: 'POST', headers: { 'content-type':'application/json' }, body: JSON.stringify({ url }) });
+        const j = await r.json();
+        out.textContent = JSON.stringify(j, null, 2);
+      };
+    </script>
+  </body>
+</html>

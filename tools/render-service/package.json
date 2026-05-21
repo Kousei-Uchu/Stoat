@@ -1,0 +1,14 @@
+{
+  "name": "nora-render-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone render service for resolving Spotify and downloading audio (used as a fallback when the app cannot access Spotify).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "spotifly": "^0.1.1"
+  }
+}

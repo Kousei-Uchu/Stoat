@@ -612,6 +612,7 @@
   },
 
   "songInfoPage": {
+    "similarTracksUnavailable": "Similar tracks are unavailable right now.",
     "listensCount": "{{count}} listens",
     "listeningActivityInLastMonths": "Listening activity in the Last {{count}} Months",
     "similarTracksInLibrary": "Similar tracks in your library",
@@ -731,7 +732,8 @@
   "sideBar": {
     "home": "Home",
     "search": "Search",
-    "download": "Download"
+    "download": "Download",
+    "djMode": "DJ Mode"
   },
 
   "renamePlaylistPrompt": {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from '@tanstack/react-router';
 import Checkbox from '../../Checkbox';
@@ -59,16 +59,16 @@ export default function DownloadSettings() {
 
   return (
     <li className="settings-section" id="download-settings-container">
-      <h3 className="text-lg font-medium">{t('settingsPage.downloads') || 'Downloads'}</h3>
+      <h3 className="text-lg font-medium">{t('settingsPage.downloads' as any) || 'Downloads'}</h3>
       <p className="mt-1 text-sm text-font-color-black/55 dark:text-font-color-white/55">
         Configure how Nora downloads and saves music from the internet.
       </p>
 
       {/* Enable / disable */}
       <div className="mt-4">
-        <Checkbox
-          id="enableDownloaderFeatures"
-          labelContent={t('settingsPage.enableDownloader') || 'Enable downloader'}
+            <Checkbox
+              id="enableDownloaderFeatures"
+              labelContent={t('settingsPage.enableDownloader' as any) || 'Enable downloader'}
           isChecked={enabled}
           checkedStateUpdateFunction={(state) => {
             setEnabled(state);
@@ -85,7 +85,7 @@ export default function DownloadSettings() {
           {/* Download folder */}
           <div className="mt-5">
             <label className="block text-sm font-medium mb-1">
-              {t('settingsPage.downloadFolder') || 'Download folder'}
+              {t('settingsPage.downloadFolder' as any) || 'Download folder'}
             </label>
             <p className="mb-2 text-xs text-font-color-black/45 dark:text-font-color-white/45">
               Where downloaded songs are saved. Leave blank to use the system Music folder.
@@ -149,7 +149,7 @@ export default function DownloadSettings() {
             <div className="flex flex-col gap-3">
               <Checkbox
                 id="enableCrossfade"
-                labelContent={t('settingsPage.enableCrossfade') || 'Enable crossfade between tracks'}
+                labelContent={t('settingsPage.enableCrossfade' as any) || 'Enable crossfade between tracks'}
                 isChecked={enableCrossfade}
                 checkedStateUpdateFunction={(state) => setEnableCrossfade(state)}
               />
@@ -175,7 +175,7 @@ export default function DownloadSettings() {
               <Checkbox
                 id="enableLoudnessNormalization"
                 labelContent={
-                  t('settingsPage.enableLoudnessNormalization') || 'Enable loudness normalisation'
+                  t('settingsPage.enableLoudnessNormalization' as any) || 'Enable loudness normalisation'
                 }
                 isChecked={enableLoudnessNormalization}
                 checkedStateUpdateFunction={(state) => setEnableLoudnessNormalization(state)}
