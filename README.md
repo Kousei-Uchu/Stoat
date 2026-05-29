@@ -4,123 +4,139 @@
 
 # Nora Player
 
-### An elegant music player for the modern desktop
+### An elegant music player for desktop, iOS, and Android
 
-Built with Electron and React • Inspired by [Oto Music](https://play.google.com/store/apps/details?id=com.piyush.music&gl=us)
+Built with Electron (desktop) and Capacitor (mobile) · React · TypeScript
 
-[![GitHub license](https://img.shields.io/github/license/Sandakan/Nora?style=for-the-badge)](https://github.com/Sandakan/Nora/blob/master/LICENSE)
+[![License](https://img.shields.io/github/license/Sandakan/Nora?style=for-the-badge)](LICENSE)
 
 > **Original project**: [Sandakan/Nora](https://github.com/Sandakan/Nora)  
-> **This fork** is maintained by **Sorren** ([@Kousei-Uchu](https://github.com/Kousei-Uchu)) and adds a suite of extended features described below.
+> **This fork** is maintained by **Sorren** ([@Kousei-Uchu](https://github.com/Kousei-Uchu))
 
-[Download](#-download) • [Features](#-features) • [Build Guide](#-build-from-source) • [Changelog](/changelog.md)
+[Desktop Build](#-desktop-electron) · [iOS Build](#-ios-capacitor) · [Android Build](#-android-capacitor) · [Plugins](#-plugin-system) · [Changelog](changelog.md)
 
 </div>
-
----
-
-## 🎯 Why Nora?
-
-Nora reimagines desktop music playback with thoughtful design and powerful features. Built to overcome the limitations of default music apps, it provides an intuitive and beautiful experience that puts your music front and center.
-
-![Nora Banner Artwork](/resources/other/artwork%200.webp)
 
 ---
 
 ## ✨ Features
 
 ### Core (original Nora)
+- Full music library management — songs, artists, albums, genres, playlists
+- Synced & unsynced lyrics (LRClib, local .lrc files)
+- Last.fm scrobbling, Discord Rich Presence
+- Mini-player, fullscreen player, equalizer, dynamic themes
 
-**Library Management**
-- Organize songs, artists, albums, and playlists with ease
-- Advanced search with smart song filters
-- Edit song metadata easily and conveniently
-- Full genre, album, and artist info pages
+### Extended (this fork)
 
-**Listening Experience**
-- Sing along with song lyrics (synced & unsynced)
-- Last.FM scrobbling integration
-- Mini-player and fullscreen player modes
+#### Downloader Plugin
+- Paste any YouTube, Spotify, SoundCloud, or YouTube Music URL
+- **Spotify support with no login** — uses the public Spotify web-player token (spotifly-style). If you configure Spotify credentials in Settings → Accounts, the official Client Credentials flow is used instead for higher rate limits.
+- Smart YouTube matching avoids wrong versions (instrumentals, covers, remixes, nightcore, etc.) using confidence scoring across title + artist + album + duration
+- Batch download: full albums, playlists, artist discographies
+- Full ID3 tag embedding (title, artist, album artist, album, year, track #, genre, artwork)
+- Synced `.lrc` lyrics downloaded alongside audio, auto-registered in library
+- **Duplicate detection** — prompts before re-downloading an existing file
+- yt-dlp auto-downloaded on first use (~10 MB), no user setup needed
 
-**Personalization**
-- Favorites, listening history, playlists
-- Artist biography and similar artist info
-- Light / Dark theme
+#### DJ Mode Plugin
+- AI voice announcements between tracks (Web Speech API TTS)
+- AI-generated commentary via Anthropic API (4 styles: Minimal, Friendly, Hype, Trivia)
+- Mood selector (Auto, Chill, Energetic, Focus, Party, Moody)
+- Crossfade (1–12s), loudness normalisation
+- Session stats, live TTS preview
 
----
+#### Plugin System
+- All extended features are **plugins**, not hardcoded features
+- Built-in plugins (Downloader, DJ Mode) ship with Nora, can be disabled
+- Plugin Store with Official and Community sections
+- Install, enable/disable, uninstall from one UI
 
-### 🆕 Extended features (this fork)
-
-#### Downloader (Stoat Downloader)
-- **No external dependencies** — yt-dlp is auto-downloaded on first launch (~10 MB) and managed automatically
-- **Search** songs by name with results from YouTube Music (preferred for accuracy) and YouTube
-- **Paste any URL** — YouTube, YouTube Music, SoundCloud, and more
-- **Spotify URL support** (track, album, playlist, artist discography) — no Spotify login required
-  - Uses Spotify's public metadata API to fetch full track info including album, artist, genres, year, and track number
-  - Smart YouTube matching using confidence scoring (title + artist + album + duration similarity) to avoid wrong versions (instrumentals, remixes, covers, sped-up, etc.)
-  - Batch downloading for albums, playlists, and full artist discographies with per-track progress
-- **Rich metadata tagging** — downloaded files are tagged with title, artist, album artist, album, year, track number, and genres via ffmpeg
-- **Lyrics download** — synced `.lrc` files downloaded and converted alongside audio automatically
-- **Recent downloads** panel shows status of all downloads this session (replaces the old "in download folder" file list)
-- **Spaces in search** fixed — the text input now correctly allows spaces
-
-#### DJ Mode
-- Full Spotify-style AI DJ feature (accessible via sidebar or Settings → Downloads → DJ Mode)
-- **Voice announcements** between tracks using the Web Speech API (TTS)
-  - Choose from all system voices
-  - Control speed, pitch, and volume
-  - Skip announcements with one click
-- **AI-generated commentary** using a built-in Anthropic model
-  - Four announcement styles: Minimal, Friendly, Hype, Trivia
-  - Configurable announce frequency (every N tracks)
-- **Mood selector** — Auto, Chill, Energetic, Focus, Party, Moody
-- **Crossfade** between tracks (1–12 s, configurable)
-- **Loudness normalisation** toggle
-- **Session stats** — tracks played, announcements made, session duration
-- **TTS preview** — type any text and hear your voice settings live
-
-#### Album & Artist metadata
-- Album downloads now include full album-level metadata (album artist, year, genre, track number) embedded in the file
-- Spotify-sourced downloads carry genre tags fetched from Spotify's artist and album API
+#### iOS & Android (Capacitor)
+- Full Capacitor integration — build for iOS 16+ and Android
+- **iOS is completely clean**: no downloader, no plugin system, no DJ mode, not even a log line mentioning them. The Vite build system removes them entirely via compile-time constants + tree-shaking + module alias stubs.
+- Android supports all desktop features except Electron-specific IPC
 
 ---
 
-## 📥 Download
-
-Go to the **[Releases page](https://github.com/Kousei-Uchu/Nora/releases) > Assets > Choose your platform** or download the latest release directly.
-
----
-
-## 🔨 Build from source
+## 🖥 Desktop (Electron)
 
 ```bash
-git clone https://github.com/Kousei-Uchu/Nora.git
-cd Nora
 npm install
-npm run dev        # Development
-npm run build      # Production build
+npm run dev        # development
+npm run build      # production build
 ```
 
 ---
 
-## 📸 Gallery
+## 📱 iOS (Capacitor)
 
-![Support for Online and Offline Lyrics](/resources/other/artwork%201.webp)
+> **Requirements**: macOS, Xcode 15+, CocoaPods
 
-![Switch between Dark and Light Modes](/resources/other/artwork%202.webp)
+```bash
+npm install
 
-![Support for Last.FM Scrobbling](/resources/other/artwork%209.webp)
+# First time: add the iOS platform
+npm run cap:add:ios
 
-![Organize your music library with ease](/resources/other/artwork%203.webp)
+# Build the web assets for iOS (strips ALL download/plugin code)
+npm run build:ios
+
+# Open in Xcode
+npm run cap:ios
+```
+
+The `build:ios` script sets `VITE_PLATFORM=ios`, which:
+- Replaces `DownloadPage`, `DjModePage`, `PluginsPage` with null stubs
+- Replaces the plugin registry with empty exports  
+- Sets `window.api` to `undefined` (no Electron IPC surface)
+- Tree-shakes out all dead code
+
+The result is a clean music player with zero download or plugin infrastructure.
+
+---
+
+## 🤖 Android (Capacitor)
+
+> **Requirements**: Android Studio, JDK 17+
+
+```bash
+npm install
+
+# First time: add the Android platform
+npm run cap:add:android
+
+# Build web assets for Android
+npm run build:android
+
+# Open in Android Studio
+npm run cap:android
+```
+
+---
+
+## 🔌 Plugin System
+
+Plugins live in `src/renderer/src/plugins/`. A plugin is defined by a `NPluginManifest` object in `registry.ts`.
+
+**Adding an official plugin:**
+1. Add its manifest to `OFFICIAL_STORE_PLUGINS` in `registry.ts`
+2. Create the component(s) and route(s)
+3. Guard any Electron IPC calls behind `IS_ELECTRON` from `platform.ts`
+
+**Built-in plugins** (cannot be uninstalled, only disabled):
+- `dev.nora.downloader` — Nora Downloader
+- `dev.nora.dj` — DJ Mode
 
 ---
 
 ## 🤝 Credits
 
 - **Original Nora** by [Sandakan](https://github.com/Sandakan) — [github.com/Sandakan/Nora](https://github.com/Sandakan/Nora)
-- **This fork** maintained by [Sorren (@Kousei-Uchu)](https://github.com/Kousei-Uchu)
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) for audio extraction
-- [Anthropic](https://anthropic.com) for Claude AI (DJ commentary)
+- **Fork** by [Sorren (@Kousei-Uchu)](https://github.com/Kousei-Uchu)
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — audio extraction
+- [Anthropic](https://anthropic.com) — Claude AI (DJ commentary)
+- [Capacitor](https://capacitorjs.com) — iOS/Android runtime
 
 ## 📄 License
 

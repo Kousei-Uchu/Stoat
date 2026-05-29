@@ -537,6 +537,19 @@ declare global {
     enableDjMode: boolean;
     djProvider: string;
     djModel: string;
+    defaultDownloadFormat: string;
+    downloadLyricsDefault: boolean;
+    djEnabled: boolean;
+    djMood: string;
+    djCrossfadeSec: number;
+    djLoudnessNorm: boolean;
+    djTtsEnabled: boolean;
+    djTtsVoice: string;
+    djTtsRate: number;
+    djTtsPitch: number;
+    djTtsVolume: number;
+    djAnnouncementStyle: string;
+    djAnnounceOnEvery: number;
   }
 
   interface CurrentSong {

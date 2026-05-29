@@ -411,6 +411,17 @@ export function initializeIPC(mainWindow: BrowserWindow, abortSignal: AbortSigna
      * 3. If the song is already in the DB (re-download), reParseSong is called to
      *    sync any updated metadata tags.
      */
+    // Renderer sends this after user responds to a duplicate-file prompt
+    ipcMain.on(
+      'app/downloader/duplicate-response',
+      (_, payload: { downloadId: string; action: 'skip' | 'overwrite' }) => {
+        // The actual handling is done inside checkForDuplicate via a separate
+        // ipcMain.once listener — this registration is just documentation.
+        // The event propagates through the normal ipcMain event system.
+        void payload;
+      }
+    );
+
     ipcMain.handle(
       'app/downloader/register-song',
       async (_, audioPath: string) => {

@@ -1,86 +1,131 @@
 import { Client } from 'discord-rpc';
-
 import logger from '../logger';
 
-const ActivityType = {
-  Game: 0,
-  Streaming: 1,
-  Listening: 2,
-  Watching: 3,
-  Custom: 4,
-  Competing: 5
-};
+const ActivityType = { Listening: 2 };
+
+let discord: InstanceType<typeof Client> | null = null;
+let isConnected = false;
+let isConnecting = false;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let lastPayload: any = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 const defaultPayload = {
   pid: process.pid,
   activity: {
-    timestamps: {
-      start: Date.now()
-      //end: Date.now() + 100000
-    },
+    timestamps: { start: Date.now() },
     details: 'Nora',
-    //state: '',
     assets: {
       large_image: 'nora_logo',
-      //large_text: 'Nora',
-      small_image: 'song_artwork'
-      //small_text: ''
+      small_image: 'song_artwork',
     },
-    // buttons: [
-    //   {
-    //     label: '',
-    //     url: ''
-    //   }
-    // ],
     instance: true,
-    type: ActivityType.Listening
-  }
+    type: ActivityType.Listening,
+  },
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let discord: any;
-
-let lastPayload: typeof defaultPayload;
-
-function Initialize() {
-  if (discord) return;
-  discord = new Client({ transport: 'ipc' });
-  discord.on('ready', async () => {
-    discord.request('SET_ACTIVITY', lastPayload ?? defaultPayload);
-  });
-  discord.on('disconnected', () => {
-    setTimeout(() => loginRPC(), 1000).unref();
-  });
-  loginRPC();
-}
-
-function loginRPC() {
+export function Initialize() {
   const DISCORD_CLIENT_ID = import.meta.env.MAIN_VITE_DISCORD_CLIENT_ID;
-  if (!DISCORD_CLIENT_ID) throw new Error('Discord Client ID not found.');
-  discord.login({ clientId: DISCORD_CLIENT_ID }).catch(() => {
-    setTimeout(() => loginRPC(), 5000).unref();
-  });
-}
+  if (!DISCORD_CLIENT_ID) {
+    // No client ID configured — RPC is disabled; log once at debug level only
+    logger.debug('Discord RPC: no client ID configured, skipping.');
+    return;
+  }
 
-function setDiscordRPC(data: null | typeof defaultPayload.activity) {
-  if (discord.user) {
-    const payload = data
-      ? {
-          pid: process.pid,
-          activity: data
-        }
-      : defaultPayload;
+  if (discord || isConnecting) return;
+  isConnecting = true;
 
-    if (data) {
-      data.instance = true;
-      data.type = ActivityType.Listening;
-    }
+  try {
+    discord = new Client({ transport: 'ipc' });
 
-    lastPayload = payload;
+    discord.on('ready', () => {
+      isConnected = true;
+      isConnecting = false;
+      logger.debug('Discord RPC connected.');
+      // Send any queued payload
+      if (lastPayload) {
+        try { discord?.request('SET_ACTIVITY', lastPayload); } catch { /* best-effort */ }
+      }
+    });
 
-    logger.debug(JSON.stringify(payload));
-    discord.request('SET_ACTIVITY', payload); //send raw payload to discord RPC server
+    discord.on('disconnected', () => {
+      isConnected = false;
+      isConnecting = false;
+      discord = null;
+      scheduleReconnect();
+    });
+
+    discord.on('error', (err) => {
+      logger.debug('Discord RPC error', { err: String(err) });
+      isConnected = false;
+      isConnecting = false;
+      discord = null;
+      scheduleReconnect();
+    });
+
+    discord.login({ clientId: DISCORD_CLIENT_ID }).catch((err) => {
+      logger.debug('Discord RPC login failed', { err: String(err) });
+      isConnected = false;
+      isConnecting = false;
+      discord = null;
+      scheduleReconnect();
+    });
+  } catch (err) {
+    logger.debug('Discord RPC init error', { err: String(err) });
+    isConnected = false;
+    isConnecting = false;
+    discord = null;
+    scheduleReconnect();
   }
 }
 
-export { Initialize, setDiscordRPC };
+function scheduleReconnect(delayMs = 30_000) {
+  if (reconnectTimer) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    Initialize();
+  }, delayMs).unref();
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function setDiscordRPC(data: any | null) {
+  const payload = data
+    ? {
+        pid: process.pid,
+        activity: {
+          ...data,
+          instance: true,
+          type: ActivityType.Listening,
+        },
+      }
+    : defaultPayload;
+
+  lastPayload = payload;
+
+  if (!isConnected || !discord) {
+    // Not connected — store payload and try to connect
+    Initialize();
+    return;
+  }
+
+  try {
+    discord.request('SET_ACTIVITY', payload);
+    logger.debug('Discord RPC activity set.');
+  } catch (err) {
+    logger.debug('Discord RPC SET_ACTIVITY failed', { err: String(err) });
+    isConnected = false;
+    discord = null;
+    scheduleReconnect(5_000);
+  }
+}
+
+export function destroyDiscordRPC() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  try { discord?.destroy(); } catch { /* best-effort */ }
+  discord = null;
+  isConnected = false;
+  isConnecting = false;
+}

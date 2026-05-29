@@ -553,8 +553,7 @@ function SongTagsEditingPage() {
               label={t('common.goBack')}
               iconName="arrow_back"
               className="mt-4"
-              clickHandler={() => {
-history.back()}
+              clickHandler={() => {history.back()}}
             />
           </div>
         )}

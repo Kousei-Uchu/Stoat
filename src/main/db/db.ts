@@ -16,7 +16,27 @@ import { seedDatabase } from './seed';
 
 const DB_NAME = 'nora.pglite.db';
 export const DB_PATH = app.getPath('userData') + '/' + DB_NAME;
-const migrationsFolder = path.resolve(import.meta.dirname, '../../resources/drizzle/');
+
+// Resolve the drizzle migrations folder correctly for both dev and prod.
+//
+// Dev  (npm run dev):
+//   app.getAppPath() = <project root>
+//   → <project root>/resources/drizzle
+//
+// Prod (packaged, asarUnpack includes resources/**):
+//   app.getAppPath() = .../app.asar
+//   Files are unpacked to .../app.asar.unpacked/resources/drizzle
+//   → path.dirname(app.getAppPath())/app.asar.unpacked/resources/drizzle
+//
+const migrationsFolder = (() => {
+  const appPath = app.getAppPath();
+  if (app.isPackaged) {
+    // asarUnpack puts resources/** next to the .asar file
+    return path.join(path.dirname(appPath), 'app.asar.unpacked', 'resources', 'drizzle');
+  }
+  // Development: app.getAppPath() is the project root
+  return path.join(appPath, 'resources', 'drizzle');
+})();
 logger.debug(`Migrations folder: ${migrationsFolder}`);
 
 mkdirSync(DB_PATH, { recursive: true });

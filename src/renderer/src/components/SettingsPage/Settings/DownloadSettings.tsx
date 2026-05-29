@@ -15,10 +15,10 @@ export default function DownloadSettings() {
     storage.preferences.getPreferences('downloadFolder') || ''
   );
   const [defaultFormat, setDefaultFormat] = useState<string>(
-    storage.preferences.getPreferences('defaultDownloadFormat') || 'mp3_320'
+    storage.preferences.getPreferences('defaultDownloadFormat') as string || 'mp3_320'
   );
   const [downloadLyrics, setDownloadLyrics] = useState(
-    storage.preferences.getPreferences('downloadLyricsDefault') ?? true
+    storage.preferences.getPreferences('downloadLyricsDefault') as boolean ?? true
   );
   const [enableCrossfade, setEnableCrossfade] = useState(
     storage.preferences.getPreferences('enableCrossfade') ?? false
@@ -36,7 +36,7 @@ export default function DownloadSettings() {
 
   const saveFormat = () => {
     storage.preferences.setPreferences('defaultDownloadFormat', defaultFormat);
-    storage.preferences.setPreferences('downloadLyricsDefault', downloadLyrics);
+    storage.preferences.setPreferences('downloadLyricsDefault', downloadLyrics as any);
   };
 
   const savePlayback = () => {

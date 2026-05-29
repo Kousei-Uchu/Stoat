@@ -222,9 +222,13 @@ export default function App() {
     }
     if (type === 'full') {
       navigate({ to: '/fullscreen-player/' });
-    } else if (prevType === 'full') {
-      // Returning from fullscreen — go back to main player
-      navigate({ to: '/main-player/home' });
+    } else if (type === 'mini') {
+      navigate({ to: '/mini-player/' });
+    } else {
+      // 'normal' — return from fullscreen or mini-player
+      if (prevType === 'full' || prevType === 'mini') {
+        navigate({ to: '/main-player/home' });
+      }
     }
   }, [navigate]);
 

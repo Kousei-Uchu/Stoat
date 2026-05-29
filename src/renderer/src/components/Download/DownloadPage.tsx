@@ -480,6 +480,57 @@ function UrlKindPill({ kind }: { kind: UrlKind }) {
   );
 }
 
+// ─── Duplicate dialog ─────────────────────────────────────────────────────────
+
+function DuplicateDialog({
+  downloadId,
+  filename,
+  onDismiss,
+}: {
+  downloadId: string;
+  filename: string;
+  onDismiss: () => void;
+}) {
+  const respond = (action: 'skip' | 'overwrite') => {
+    window.api.downloader.respondToDuplicate?.(downloadId, action);
+    onDismiss();
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-background-color-1 p-5 shadow-xl dark:bg-dark-background-color-1">
+        <div className="flex items-start gap-3 mb-4">
+          <span className="material-icons-round text-2xl text-font-color-highlight dark:text-dark-font-color-highlight">
+            file_copy
+          </span>
+          <div>
+            <p className="font-semibold text-sm">File already exists</p>
+            <p className="mt-1 text-xs text-font-color-black/55 dark:text-font-color-white/55 break-all">
+              {filename}
+            </p>
+          </div>
+        </div>
+        <p className="text-xs text-font-color-black/55 dark:text-font-color-white/55 mb-4">
+          A file with a similar name was found in your download folder. What would you like to do?
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => respond('skip')}
+            className="flex-1 rounded-lg bg-background-color-2 px-3 py-2 text-sm font-medium hover:bg-background-color-2/80 dark:bg-dark-background-color-2"
+          >
+            Skip
+          </button>
+          <button
+            onClick={() => respond('overwrite')}
+            className="flex-1 rounded-lg bg-font-color-highlight px-3 py-2 text-sm font-medium text-white dark:bg-dark-font-color-highlight dark:text-font-color-black"
+          >
+            Download anyway
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function DownloadPage() {
@@ -508,6 +559,7 @@ export default function DownloadPage() {
   const [ytdlpStatus, setYtdlpStatus] = useState<YtDlpStatus | null>(null);
   const [activeUrl, setActiveUrl] = useState<string | null>(null);
   const [recentDownloads, setRecentDownloads] = useState<RecentDownload[]>([]);
+  const [duplicateDialog, setDuplicateDialog] = useState<{ downloadId: string; filename: string } | null>(null);
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeJobId = useRef<string | null>(null);
@@ -585,6 +637,9 @@ export default function DownloadPage() {
         setJobStatus({ kind: 'resolving' });
       } else if (event === 'resolving') {
         setJobStatus({ kind: 'resolving', text: text ?? 'Resolving…' });
+      } else if (event === 'duplicate') {
+        const { downloadId: dupId, existingFile } = data ?? {};
+        setDuplicateDialog({ downloadId: dupId, filename: existingFile ?? 'unknown file' });
       } else if (event === 'batch_track_error') {
         // update batch status text only
         setJobStatus((prev) => prev.kind === 'batch' ? { ...prev, text: text ?? prev.text } : prev);
@@ -810,6 +865,15 @@ export default function DownloadPage() {
 
         {/* ── Recent downloads ── */}
         <RecentDownloads items={recentDownloads} />
+
+        {/* ── Duplicate dialog ── */}
+        {duplicateDialog && (
+          <DuplicateDialog
+            downloadId={duplicateDialog.downloadId}
+            filename={duplicateDialog.filename}
+            onDismiss={() => setDuplicateDialog(null)}
+          />
+        )}
 
         {/* ── Empty state ── */}
         {!query && results.length === 0 && jobStatus.kind === 'idle' && recentDownloads.length === 0 && (

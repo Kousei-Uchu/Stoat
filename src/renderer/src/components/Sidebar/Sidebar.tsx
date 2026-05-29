@@ -1,3 +1,4 @@
+import { SUPPORTS_PLUGINS } from '../../platform';
 import { store } from '@renderer/store/store';
 import { linkOptions } from '@tanstack/react-router';
 import { useStore } from '@tanstack/react-store';
@@ -9,15 +10,15 @@ import SideBarItem from './SideBarItem';
 
 const Sidebar = memo(() => {
   const bodyBackgroundImage = useStore(store, (state) => state.bodyBackgroundImage);
-  // const currentlyActivePage = useStore(store, (state) => state.currentlyActivePage);
 
   const { t } = useTranslation();
 
-  const linkData = useMemo(
+  // Build the base nav items (always present on all platforms)
+  const baseItems = useMemo(
     () =>
       linkOptions([
         {
-          to: '/main-player/home',
+          to: '/main-player/home' as const,
           id: 'Home',
           parentClassName: 'home',
           icon: 'home',
@@ -25,7 +26,7 @@ const Sidebar = memo(() => {
           isActive: true
         },
         {
-          to: '/main-player/search',
+          to: '/main-player/search' as const,
           id: 'Search',
           parentClassName: 'search',
           icon: 'search',
@@ -33,23 +34,7 @@ const Sidebar = memo(() => {
           isActive: false
         },
         {
-          to: '/main-player/download',
-          id: 'Download',
-          parentClassName: 'download',
-          icon: 'download',
-          content: t('sideBar.download') || 'Download',
-          isActive: false
-        },
-        {
-          to: '/main-player/dj',
-          id: 'DjMode',
-          parentClassName: 'dj',
-          icon: 'radio',
-          content: t('sideBar.djMode') || 'DJ Mode',
-          isActive: false
-        },
-        {
-          to: '/main-player/songs',
+          to: '/main-player/songs' as const,
           id: 'Songs',
           parentClassName: 'songs',
           icon: 'music_note',
@@ -57,7 +42,7 @@ const Sidebar = memo(() => {
           isActive: false
         },
         {
-          to: '/main-player/playlists',
+          to: '/main-player/playlists' as const,
           id: 'Playlists',
           parentClassName: 'playlists',
           icon: 'queue_music',
@@ -65,7 +50,7 @@ const Sidebar = memo(() => {
           isActive: false
         },
         {
-          to: '/main-player/folders',
+          to: '/main-player/folders' as const,
           id: 'Folders',
           parentClassName: 'folders',
           icon: 'folder',
@@ -73,7 +58,7 @@ const Sidebar = memo(() => {
           isActive: false
         },
         {
-          to: '/main-player/artists',
+          to: '/main-player/artists' as const,
           id: 'Artists',
           parentClassName: 'artists',
           icon: 'people',
@@ -81,7 +66,7 @@ const Sidebar = memo(() => {
           isActive: false
         },
         {
-          to: '/main-player/albums',
+          to: '/main-player/albums' as const,
           id: 'Albums',
           parentClassName: 'albums',
           icon: 'album',
@@ -89,7 +74,7 @@ const Sidebar = memo(() => {
           isActive: false
         },
         {
-          to: '/main-player/genres',
+          to: '/main-player/genres' as const,
           id: 'Genres',
           parentClassName: 'genres',
           icon: 'track_changes',
@@ -97,7 +82,7 @@ const Sidebar = memo(() => {
           isActive: false
         },
         {
-          to: '/main-player/settings',
+          to: '/main-player/settings' as const,
           id: 'Settings',
           parentClassName: 'settings',
           icon: 'settings',
@@ -107,6 +92,49 @@ const Sidebar = memo(() => {
       ]),
     [t]
   );
+
+  // Plugin-gated items — only rendered on non-iOS platforms
+  const pluginItems = useMemo(
+    () =>
+      SUPPORTS_PLUGINS
+        ? linkOptions([
+            {
+              to: '/main-player/download' as const,
+              id: 'Download',
+              parentClassName: 'download',
+              icon: 'download',
+              content: t('sideBar.download') || 'Download',
+              isActive: false
+            },
+            {
+              to: '/main-player/dj' as const,
+              id: 'DjMode',
+              parentClassName: 'dj',
+              icon: 'radio',
+              content: t('sideBar.djMode') || 'DJ Mode',
+              isActive: false
+            },
+            {
+              to: '/main-player/plugins' as const,
+              id: 'Plugins',
+              parentClassName: 'plugins',
+              icon: 'extension',
+              content: t('sideBar.plugins') || 'Plugins',
+              isActive: false
+            },
+          ])
+        : [],
+    [t]
+  );
+
+  // Merge: Search → [plugin items] → Songs → ...
+  // Insert plugin items after Search (index 1) and before Songs
+  const linkData = useMemo(() => {
+    const result = [...baseItems];
+    // Insert pluginItems after index 1 (Search)
+    result.splice(2, 0, ...pluginItems);
+    return result;
+  }, [baseItems, pluginItems]);
 
   const [data, setData] = useState<typeof linkData>();
 

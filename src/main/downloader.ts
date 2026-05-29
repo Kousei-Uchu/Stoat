@@ -18,6 +18,19 @@ import { join, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import https from 'node:https';
 
+const spotifyUrlInfo = require('spotify-url-info').default || require('spotify-url-info');
+
+const fetchFn = globalThis.fetch;
+
+const {
+  getData,
+  getPreview,
+  getTracks,
+  getDetails
+} = spotifyUrlInfo(fetchFn);
+
+const spotify = getData
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface DownloadOptions {
@@ -41,6 +54,8 @@ export interface DownloadOptions {
   batchId?: string;
   // Extra options
   downloadLyrics?: boolean;
+  /** How to handle duplicate files: 'ask' (default) | 'skip' | 'overwrite' */
+  duplicateAction?: 'ask' | 'skip' | 'overwrite';
 }
 
 export interface SpotifyTrackMeta {
@@ -350,40 +365,274 @@ export function setMainWindowRef(win: BrowserWindow) {
 }
 
 // ─── Spotify API helpers ──────────────────────────────────────────────────────
+//
+// Strategy:
+//   1. If user has configured Spotify credentials (clientId + clientSecret),
+//      use the Client Credentials OAuth flow (official, higher rate limits).
+//   2. Otherwise, use Spotify's public web-player token endpoint (spotifly-style,
+//      no login, no credentials — same token the open.spotify.com player uses).
+//
+// This mirrors the approach used by spotifly and spotdl.
 
-/** Get a public Spotify access token (no login required — same token web player uses) */
-async function getSpotifyToken(): Promise<string> {
+function normaliseSpotifyDuration(d: number): number {
+  if (!d) return 0;
+
+  // probably already ms
+  if (d > 10000) return d;
+
+  // probably seconds
+  return d * 1000;
+}
+
+/** Retrieve user-configured Spotify credentials from DB settings (may be empty) */
+async function getSpotifyCredentials(): Promise<{ clientId: string; clientSecret: string } | null> {
+  try {
+    const { getUserSettings } = await import('./db/queries/settings');
+    const settings = await getUserSettings();
+    const clientId = (settings as any).spotifyClientId as string | undefined;
+    const clientSecret = (settings as any).spotifyClientSecret as string | undefined;
+    if (clientId && clientId.trim() && clientSecret && clientSecret.trim()) {
+      return { clientId: clientId.trim(), clientSecret: clientSecret.trim() };
+    }
+  } catch { /* DB not ready or keys missing — fall through */ }
+  return null;
+}
+
+/** Get an access token via Client Credentials flow (when user provides credentials) */
+async function getSpotifyTokenWithCredentials(clientId: string, clientSecret: string): Promise<string> {
   const now = Date.now();
   if (spotifyToken && now < spotifyTokenExpiry - 30_000) return spotifyToken;
 
+  const creds = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const body = 'grant_type=client_credentials';
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: 'accounts.spotify.com',
+        path: '/api/token',
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${creds}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          try {
+            const data = JSON.parse(Buffer.concat(chunks).toString());
+            if (data.access_token) {
+              spotifyToken = data.access_token;
+              spotifyTokenExpiry = now + (data.expires_in ?? 3600) * 1000;
+              resolve(spotifyToken!);
+            } else {
+              reject(new Error('No access_token in Spotify credential response'));
+            }
+          } catch (e) { reject(e); }
+        });
+        res.on('error', reject);
+      }
+    );
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * SpotAPI-style anonymous Spotify token acquisition.
+ *
+ * Mirrors the approach used by https://github.com/Aran404/SpotAPI —
+ * a three-step flow that never requires login or OAuth:
+ *
+ * Step 1: GET open.spotify.com — extract the anonymous client ID embedded
+ *         in the page HTML (Spotify injects it as window.__SPOTIFY_DATA__
+ *         or similar; we also parse the <script> blocks).
+ *
+ * Step 2: POST clienttoken.spotify.com/v1/clienttoken — exchange the
+ *         anonymous client ID for a proper "client token" (Bearer token
+ *         for the internal partner API).
+ *
+ * Step 3: Use the client token as Authorization: Bearer <token> for all
+ *         calls to api.spotify.com/v1/*.
+ *
+ * Fallback: if the clienttoken endpoint fails, fall back to the simpler
+ * open.spotify.com/get_access_token endpoint (still no login required).
+ */
+
+/** Cached anonymous Spotify client_id extracted from the web page */
+let spotifyAnonymousClientId: string | null = null;
+
+/**
+ * Step 1: Fetch open.spotify.com and extract the anonymous client_id
+ * that Spotify embeds in the page for unauthenticated users.
+ */
+async function getSpotifyAnonymousClientId(): Promise<string> {
+  if (spotifyAnonymousClientId) return spotifyAnonymousClientId;
+
+  const res = await httpsGet('https://open.spotify.com/', {
+    'User-Agent':
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  });
+
+  // SpotAPI parses the clientId from the HTML. Spotify embeds it in several forms:
+  // 1. window.spotifyConfig = { clientId: "..." }
+  // 2. "clientId":"<32-hex-chars>"  (inside JSON blobs in <script> tags)
+  // 3. /api/token?client_id=...  query strings
+  const patterns = [
+  /"clientId":"([a-f0-9]{32})"/i,
+  /clientId:"([a-f0-9]{32})"/i,
+  /client_id=([a-f0-9]{32})/i,
+  /spotify:clientId["']?\s*[:=]\s*["']([a-f0-9]{32})/i,
+];
+
+  for (const pat of patterns) {
+    const m = res.body.match(pat);
+    if (m) {
+      spotifyAnonymousClientId = m[1];
+      return spotifyAnonymousClientId;
+    }
+  }
+
+  throw new Error('SpotAPI: could not extract anonymous Spotify clientId from open.spotify.com');
+}
+
+/**
+ * Step 2: POST to clienttoken.spotify.com to exchange an anonymous
+ * client_id for a proper Bearer access token.
+ * This is exactly what SpotAPI (github.com/Aran404/SpotAPI) does internally.
+ */
+async function getSpotifyClientToken(clientId: string): Promise<string> {
+  const body = JSON.stringify({
+    client_data: {
+      client_version: '1.2.52.442',
+      client_id: clientId,
+      js_sdk_data: {
+        device_brand: 'unknown',
+        device_model: 'unknown',
+        os: process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux',
+        os_version: 'unknown',
+        device_id: '',
+        device_type: 'computer',
+      },
+    },
+  });
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: 'clienttoken.spotify.com',
+        path: '/v1/clienttoken',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+          'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+            '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'application/json',
+          'Origin': 'https://open.spotify.com',
+          'Referer': 'https://open.spotify.com/',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-site',
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          try {
+            const data = JSON.parse(Buffer.concat(chunks).toString());
+            // Response: { granted_token: { token: "...", expires_after_seconds: 1800 } }
+            const token = data?.granted_token?.token as string | undefined;
+            if (token) {
+              resolve(token);
+            } else {
+              reject(new Error(`SpotAPI clienttoken: unexpected response: ${JSON.stringify(data).slice(0, 200)}`));
+            }
+          } catch (e) {
+            reject(e);
+          }
+        });
+        res.on('error', reject);
+      }
+    );
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * Full SpotAPI anonymous token flow.
+ * Falls back to the simpler open.spotify.com/get_access_token if clienttoken fails.
+ */
+async function getSpotifyTokenPublic(): Promise<string> {
+  const now = Date.now();
+  if (spotifyToken && now < spotifyTokenExpiry - 30_000) return spotifyToken;
+
+  // Step 1+2: SpotAPI approach — anonymous clientId → clienttoken endpoint
+  try {
+    const clientId = await getSpotifyAnonymousClientId();
+    const token = await getSpotifyClientToken(clientId);
+    spotifyToken = token;
+    spotifyTokenExpiry = now + 1_800_000; // clienttoken grants 30 min
+    return spotifyToken;
+  } catch { /* fall through to simpler endpoint */ }
+
+  // Fallback Step: use the legacy get_access_token endpoint
   try {
     const res = await httpsGet(SPOTIFY_TOKEN_URL, {
       'Accept': 'application/json',
       'Referer': 'https://open.spotify.com/',
       'Origin': 'https://open.spotify.com',
+      'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+        '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     });
     if (res.statusCode >= 200 && res.statusCode < 300) {
       const data = JSON.parse(res.body);
-      spotifyToken = data.accessToken as string;
-      // expirationTimestamp is in seconds from epoch
-      spotifyTokenExpiry = (data.accessTokenExpirationTimestampMs as number) || (now + 3600_000);
-      return spotifyToken!;
+      if (data.accessToken) {
+        spotifyToken = data.accessToken as string;
+        spotifyTokenExpiry = (data.accessTokenExpirationTimestampMs as number) || (now + 3600_000);
+        return spotifyToken!;
+      }
     }
   } catch { /* fall through */ }
 
-  throw new Error('Could not obtain Spotify access token. Try again later.');
+  throw new Error(
+    'Could not obtain an anonymous Spotify token. ' +
+    'Try adding your Spotify credentials in Settings → Accounts for a more reliable connection.'
+  );
+}
+
+/** Get a Spotify token — uses credentials if configured, otherwise public token */
+async function getSpotifyToken(): Promise<string> {
+  const creds = await getSpotifyCredentials();
+  if (creds) {
+    return getSpotifyTokenWithCredentials(creds.clientId, creds.clientSecret);
+  }
+  return getSpotifyTokenPublic();
 }
 
 async function spotifyGet(path: string): Promise<any> {
   const token = await getSpotifyToken();
-  let url = path.startsWith('http') ? path : `${SPOTIFY_API_BASE}${path}`;
-  // Follow pagination automatically for 'next' fields
+  const url = path.startsWith('http') ? path : `${SPOTIFY_API_BASE}${path}`;
   const res = await httpsGet(url, { Authorization: `Bearer ${token}` });
   if (res.statusCode === 401) {
-    // Token expired — refresh once
+    // Token expired — reset and retry once
     spotifyToken = null;
     const token2 = await getSpotifyToken();
     const res2 = await httpsGet(url, { Authorization: `Bearer ${token2}` });
+    if (res2.statusCode < 200 || res2.statusCode >= 300)
+      throw new Error(`Spotify API ${res2.statusCode}: ${path}`);
     return JSON.parse(res2.body);
   }
   if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -415,143 +664,94 @@ export function isSpotifyUrl(url: string): boolean {
 
 /** Fetch a single Spotify track and its album/artist genres */
 async function fetchSpotifyTrack(trackId: string): Promise<SpotifyTrackMeta> {
-  const track = await spotifyGet(`/tracks/${trackId}`);
-  const albumId = track.album?.id;
-  let genres: string[] = [];
-
-  // Get genres from album + first artist (Spotify attaches genres to artists/albums)
-  try {
-    const [albumData, artistData] = await Promise.all([
-      albumId ? spotifyGet(`/albums/${albumId}`) : Promise.resolve(null),
-      track.artists?.[0]?.id ? spotifyGet(`/artists/${track.artists[0].id}`) : Promise.resolve(null),
-    ]);
-    genres = [
-      ...(albumData?.genres ?? []),
-      ...(artistData?.genres ?? []),
-    ].filter((g, i, arr) => arr.indexOf(g) === i);
-  } catch { /* genres optional */ }
+  const data: any = await spotify(
+    `https://open.spotify.com/track/${trackId}`
+  );
 
   return {
-    id: track.id,
-    title: track.name,
-    artist: track.artists?.map((a: any) => a.name).join(', ') ?? '',
-    artistIds: track.artists?.map((a: any) => a.id) ?? [],
-    album: track.album?.name ?? '',
-    albumArtist: track.album?.artists?.[0]?.name ?? '',
-    year: (track.album?.release_date ?? '').slice(0, 4),
-    trackNumber: String(track.track_number ?? ''),
-    discNumber: String(track.disc_number ?? ''),
-    duration: track.duration_ms,
-    isrc: track.external_ids?.isrc,
-    explicit: track.explicit ?? false,
-    genres,
-    albumCover: track.album?.images?.[0]?.url,
+    id: data.id,
+    title: data.name ?? '',
+    artist:
+      data.artists?.map((a: any) => a.name).join(', ') ?? '',
+    artistIds: [],
+    album: data.album?.name ?? '',
+    albumArtist:
+      data.album?.artists?.[0]?.name ??
+      data.artists?.[0]?.name ??
+      '',
+    year:
+      data.album?.release_date?.slice(0, 4) ?? '',
+    trackNumber: String(data.trackNumber ?? ''),
+    discNumber: String(data.discNumber ?? ''),
+    duration: normaliseSpotifyDuration(data.duration ?? 0),
+    explicit: data.explicit ?? false,
+    genres: [],
+    albumCover:
+      data.coverArt?.sources?.[0]?.url ??
+      '',
   };
 }
 
 /** Fetch all tracks from a Spotify album */
-async function fetchSpotifyAlbumTracks(albumId: string): Promise<SpotifyTrackMeta[]> {
-  const album = await spotifyGet(`/albums/${albumId}`);
-  const genres: string[] = album.genres ?? [];
-  const albumName: string = album.name ?? '';
-  const albumArtist: string = album.artists?.[0]?.name ?? '';
-  const year: string = (album.release_date ?? '').slice(0, 4);
-  const coverUrl: string = album.images?.[0]?.url ?? '';
+async function fetchSpotifyAlbumTracks(
+  albumId: string
+): Promise<SpotifyTrackMeta[]> {
+  const data: any = await spotify(
+    `https://open.spotify.com/album/${albumId}`
+  );
 
-  const tracks: SpotifyTrackMeta[] = [];
-  let page: any = album.tracks;
+  const albumName = data.name ?? '';
+  const albumArtist =
+    data.artists?.[0]?.name ?? '';
 
-  while (page) {
-    for (const t of page.items ?? []) {
-      tracks.push({
-        id: t.id,
-        title: t.name,
-        artist: t.artists?.map((a: any) => a.name).join(', ') ?? albumArtist,
-        artistIds: t.artists?.map((a: any) => a.id) ?? [],
-        album: albumName,
-        albumArtist,
-        year,
-        trackNumber: String(t.track_number ?? ''),
-        discNumber: String(t.disc_number ?? ''),
-        duration: t.duration_ms,
-        isrc: t.external_ids?.isrc,
-        explicit: t.explicit ?? false,
-        genres,
-        albumCover: coverUrl,
-      });
-    }
-    if (page.next) {
-      const nextPage = await spotifyGet(page.next);
-      page = nextPage;
-    } else {
-      page = null;
-    }
-  }
+  const year =
+    data.release_date?.slice(0, 4) ?? '';
 
-  return tracks;
+  const cover =
+    data.coverArt?.sources?.[0]?.url ?? '';
+
+  return (data.trackList ?? []).map((t: any) => ({
+    id: t.id,
+    title: t.title ?? '',
+    artist: t.subtitle ?? albumArtist,
+    artistIds: [],
+    album: albumName,
+    albumArtist,
+    year,
+    trackNumber: String(t.trackNumber ?? ''),
+    discNumber: '1',
+    duration: normaliseSpotifyDuration(t.duration ?? 0),
+    explicit: false,
+    genres: [],
+    albumCover: cover,
+  }));
 }
+
 
 /** Fetch all tracks from a Spotify playlist */
-async function fetchSpotifyPlaylistTracks(playlistId: string): Promise<SpotifyTrackMeta[]> {
-  const tracks: SpotifyTrackMeta[] = [];
-  let url: string | null = `/playlists/${playlistId}/tracks?limit=100`;
+async function fetchSpotifyPlaylistTracks(
+  playlistId: string
+): Promise<SpotifyTrackMeta[]> {
+  const data: any = await spotify(
+    `https://open.spotify.com/playlist/${playlistId}`
+  );
 
-  while (url) {
-    const page: any = await spotifyGet(url);
-    for (const item of page.items ?? []) {
-      const t = item.track;
-      if (!t || t.type !== 'track') continue;
-      // fetch genres from artist (may be slow for large playlists — skip for perf)
-      tracks.push({
-        id: t.id,
-        title: t.name,
-        artist: t.artists?.map((a: any) => a.name).join(', ') ?? '',
-        artistIds: t.artists?.map((a: any) => a.id) ?? [],
-        album: t.album?.name ?? '',
-        albumArtist: t.album?.artists?.[0]?.name ?? '',
-        year: (t.album?.release_date ?? '').slice(0, 4),
-        trackNumber: String(t.track_number ?? ''),
-        discNumber: String(t.disc_number ?? ''),
-        duration: t.duration_ms,
-        isrc: t.external_ids?.isrc,
-        explicit: t.explicit ?? false,
-        genres: [],
-        albumCover: t.album?.images?.[0]?.url,
-      });
-    }
-    url = page.next ?? null;
-  }
-
-  return tracks;
-}
-
-/** Fetch all albums for a Spotify artist, then all tracks */
-async function fetchSpotifyArtistTracks(artistId: string): Promise<SpotifyTrackMeta[]> {
-  const tracks: SpotifyTrackMeta[] = [];
-  let url: string | null = `/artists/${artistId}/albums?include_groups=album,single&limit=50`;
-
-  const albumIds: string[] = [];
-  while (url) {
-    const page: any = await spotifyGet(url);
-    for (const a of page.items ?? []) albumIds.push(a.id);
-    url = page.next ?? null;
-  }
-
-  for (const albumId of albumIds) {
-    try {
-      const albumTracks = await fetchSpotifyAlbumTracks(albumId);
-      tracks.push(...albumTracks);
-    } catch { /* skip failed album */ }
-  }
-
-  // Deduplicate by ISRC if present, else by title+artist
-  const seen = new Set<string>();
-  return tracks.filter((t) => {
-    const key = t.isrc ?? `${t.title.toLowerCase()}::${t.artist.toLowerCase()}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return (data.trackList ?? []).map((t: any) => ({
+    id: t.id,
+    title: t.title ?? '',
+    artist: t.subtitle ?? '',
+    artistIds: [],
+    album: '',
+    albumArtist: '',
+    year: '',
+    trackNumber: '',
+    discNumber: '',
+    duration: normaliseSpotifyDuration(t.duration ?? 0),
+    explicit: false,
+    genres: [],
+    albumCover:
+      t.coverArt?.sources?.[0]?.url ?? '',
+  }));
 }
 
 // ─── Smart YouTube Music matching (spotdl-style) ──────────────────────────────
@@ -840,7 +1040,9 @@ export async function resolveSpotifyUrl(url: string): Promise<SpotifyTrackMeta[]
     case 'playlist':
       return fetchSpotifyPlaylistTracks(parsed.id);
     case 'artist':
-      return fetchSpotifyArtistTracks(parsed.id);
+      throw new Error(
+        'Spotify artist URLs are not currently supported.'
+      );
     default:
       throw new Error(`Unknown Spotify URL type: ${parsed.type}`);
   }
@@ -1143,6 +1345,19 @@ export async function startDownload(
     try {
       const binPath = await ensureYtdlp();
 
+      // ── Duplicate check for direct (non-batch) downloads ───────────────
+      // For batch downloads each track is checked individually inside the loop.
+      if (!options.isBatch && !isSpotifyUrl(options.url)) {
+        const dupResult = await checkForDuplicate(task, options);
+        if (dupResult === 'skip') {
+          task.status = 'cancelled';
+          sendProgress(task, { event: 'cancelled', text: 'Skipped — file already exists' });
+          downloadTasks.delete(id);
+          return;
+        }
+        // 'overwrite' or 'none' — proceed
+      }
+
       // ── Spotify URL handling ────────────────────────────────────────────
       if (isSpotifyUrl(options.url)) {
         const parsed = parseSpotifyUrl(options.url)!;
@@ -1273,6 +1488,74 @@ export async function cancelDownload(downloadId: string): Promise<void> {
   task.status = 'cancelled';
   sendProgress(task, { event: 'cancelled', text: 'Cancelled' });
   downloadTasks.delete(downloadId);
+}
+
+/**
+ * Check if a download output file likely already exists.
+ * For non-Spotify downloads the yt-dlp output template is:
+ *   <destination>/%(uploader)s - %(title)s.<ext>
+ * We can't know the exact filename before download, so we check by
+ * searching for files containing the search query terms in the folder.
+ *
+ * For confirmed duplicates, we emit a 'duplicate' IPC event and wait
+ * for the renderer to respond via 'app/downloader/duplicate-response'.
+ */
+async function checkForDuplicate(
+  task: DownloadTask,
+  options: DownloadOptions
+): Promise<'skip' | 'overwrite' | 'none'> {
+  if (options.duplicateAction === 'overwrite') return 'none';
+  if (options.duplicateAction === 'skip') return 'skip';
+
+  const dest = task.destination;
+  if (!existsSync(dest)) return 'none';
+
+  // Build a candidate name from metadata if available
+  const title = options.title || options.searchQuery || '';
+  const artist = options.artist || '';
+  if (!title) return 'none';
+
+  try {
+    const files = readdirSync(dest);
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const needle = norm(title);
+    const match = files.find((f) => {
+      const fn = norm(f);
+      return fn.includes(needle) || (artist && fn.includes(norm(artist)) && fn.includes(needle.slice(0, 8)));
+    });
+
+    if (!match) return 'none';
+
+    // File likely already exists — ask the renderer
+    const existingPath = join(dest, match);
+    return new Promise<'skip' | 'overwrite' | 'none'>((resolve) => {
+      sendProgress(task, {
+        event: 'duplicate',
+        text: 'File already exists',
+        existingFile: match,
+        existingPath,
+      });
+
+      // Listen for response from renderer (one-time)
+      const { ipcMain } = require('electron') as typeof import('electron');
+      const handler = (_: any, { downloadId, action }: { downloadId: string; action: 'skip' | 'overwrite' }) => {
+        if (downloadId !== task.id) return;
+        ipcMain.removeListener('app/downloader/duplicate-response', handler);
+        clearTimeout(timeout);
+        resolve(action === 'skip' ? 'skip' : 'none');
+      };
+
+      // Auto-skip after 30s if no response
+      const timeout = setTimeout(() => {
+        ipcMain.removeListener('app/downloader/duplicate-response', handler);
+        resolve('skip');
+      }, 30_000);
+
+      ipcMain.on('app/downloader/duplicate-response', handler);
+    });
+  } catch {
+    return 'none';
+  }
 }
 
 export async function listDownloads(folder?: string): Promise<string[]> {

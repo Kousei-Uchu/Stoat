@@ -325,6 +325,12 @@ const downloader = {
   removeOnYtdlpStatus: (callback: (_: unknown, data: any) => void) => ipcRenderer.removeListener('downloader/ytdlp-status', callback),
   registerSong: (audioPath: string): Promise<{ success: boolean; action?: string; reason?: string }> =>
     ipcRenderer.invoke('app/downloader/register-song', audioPath),
+  respondToDuplicate: (downloadId: string, action: 'skip' | 'overwrite'): void =>
+    ipcRenderer.send('app/downloader/duplicate-response', { downloadId, action }),
+  onDuplicate: (callback: (_: unknown, data: any) => void) =>
+    ipcRenderer.on('downloader/progress', (ev, data) => {
+      if (data?.event === 'duplicate') callback(ev, data);
+    }),
 };
 
 //  $ USER SETTINGS

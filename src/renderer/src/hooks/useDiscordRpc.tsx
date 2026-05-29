@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { store } from '../store/store';
+import { IS_ELECTRON } from '../platform';
 
 /**
  * Custom hook to manage Discord Rich Presence integration.
@@ -30,6 +31,8 @@ export function useDiscordRpc(player: HTMLAudioElement) {
   const { t } = useTranslation();
 
   const setDiscordRpcActivity = useCallback(() => {
+    if (!IS_ELECTRON) return; // Discord RPC is desktop-only
+
     const currentSong = store.state.currentSongData;
 
     if (!currentSong) {

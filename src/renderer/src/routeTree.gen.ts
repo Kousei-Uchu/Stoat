@@ -17,6 +17,7 @@ import { Route as MainPlayerSongsIndexRouteImport } from './routes/main-player/s
 import { Route as MainPlayerSettingsIndexRouteImport } from './routes/main-player/settings/index'
 import { Route as MainPlayerSearchIndexRouteImport } from './routes/main-player/search/index'
 import { Route as MainPlayerQueueIndexRouteImport } from './routes/main-player/queue/index'
+import { Route as MainPlayerPluginsIndexRouteImport } from './routes/main-player/plugins/index'
 import { Route as MainPlayerPlaylistsIndexRouteImport } from './routes/main-player/playlists/index'
 import { Route as MainPlayerLyricsIndexRouteImport } from './routes/main-player/lyrics/index'
 import { Route as MainPlayerHomeIndexRouteImport } from './routes/main-player/home/index'
@@ -27,7 +28,6 @@ import { Route as MainPlayerDjIndexRouteImport } from './routes/main-player/dj/i
 import { Route as MainPlayerArtistsIndexRouteImport } from './routes/main-player/artists/index'
 import { Route as MainPlayerAlbumsIndexRouteImport } from './routes/main-player/albums/index'
 import { Route as MainPlayerSongsSongIdRouteImport } from './routes/main-player/songs/$songId'
-import { Route as MainPlayerSongsEditSongIdRouteImport } from './routes/main-player/songs/edit/$songId'
 import { Route as MainPlayerPlaylistsHistoryRouteImport } from './routes/main-player/playlists/history'
 import { Route as MainPlayerPlaylistsFavoritesRouteImport } from './routes/main-player/playlists/favorites'
 import { Route as MainPlayerPlaylistsPlaylistIdRouteImport } from './routes/main-player/playlists/$playlistId'
@@ -36,6 +36,7 @@ import { Route as MainPlayerFoldersFolderPathRouteImport } from './routes/main-p
 import { Route as MainPlayerArtistsArtistIdRouteImport } from './routes/main-player/artists/$artistId'
 import { Route as MainPlayerAlbumsAlbumIdRouteImport } from './routes/main-player/albums/$albumId'
 import { Route as MainPlayerSearchAllIndexRouteImport } from './routes/main-player/search/all/index'
+import { Route as MainPlayerSongsEditSongIdRouteImport } from './routes/main-player/songs/edit/$songId'
 import { Route as MainPlayerLyricsEditorSongIdRouteImport } from './routes/main-player/lyrics/editor/$songId'
 
 const MainPlayerRouteRoute = MainPlayerRouteRouteImport.update({
@@ -78,6 +79,11 @@ const MainPlayerQueueIndexRoute = MainPlayerQueueIndexRouteImport.update({
   path: '/queue/',
   getParentRoute: () => MainPlayerRouteRoute,
 } as any)
+const MainPlayerPluginsIndexRoute = MainPlayerPluginsIndexRouteImport.update({
+  id: '/plugins/',
+  path: '/plugins/',
+  getParentRoute: () => MainPlayerRouteRoute,
+} as any)
 const MainPlayerPlaylistsIndexRoute =
   MainPlayerPlaylistsIndexRouteImport.update({
     id: '/playlists/',
@@ -107,6 +113,11 @@ const MainPlayerFoldersIndexRoute = MainPlayerFoldersIndexRouteImport.update({
 const MainPlayerDownloadIndexRoute = MainPlayerDownloadIndexRouteImport.update({
   id: '/download/',
   path: '/download/',
+  getParentRoute: () => MainPlayerRouteRoute,
+} as any)
+const MainPlayerDjIndexRoute = MainPlayerDjIndexRouteImport.update({
+  id: '/dj/',
+  path: '/dj/',
   getParentRoute: () => MainPlayerRouteRoute,
 } as any)
 const MainPlayerArtistsIndexRoute = MainPlayerArtistsIndexRouteImport.update({
@@ -170,6 +181,12 @@ const MainPlayerSearchAllIndexRoute =
     path: '/search/all/',
     getParentRoute: () => MainPlayerRouteRoute,
   } as any)
+const MainPlayerSongsEditSongIdRoute =
+  MainPlayerSongsEditSongIdRouteImport.update({
+    id: '/songs/edit/$songId',
+    path: '/songs/edit/$songId',
+    getParentRoute: () => MainPlayerRouteRoute,
+  } as any)
 const MainPlayerLyricsEditorSongIdRoute =
   MainPlayerLyricsEditorSongIdRouteImport.update({
     id: '/lyrics/editor/$songId',
@@ -177,17 +194,6 @@ const MainPlayerLyricsEditorSongIdRoute =
     getParentRoute: () => MainPlayerRouteRoute,
   } as any)
 
-const MainPlayerSongsEditSongIdRoute = MainPlayerSongsEditSongIdRouteImport.update({
-  id: '/songs/edit/$songId',
-  path: '/songs/edit/$songId',
-  getParentRoute: () => MainPlayerRouteRoute,
-} as any)
-
-const MainPlayerDjIndexRoute = MainPlayerDjIndexRouteImport.update({
-  id: '/main-player/dj/',
-  path: '/dj/',
-  getParentRoute: () => MainPlayerRouteRoute,
-} as any)
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/main-player': typeof MainPlayerRouteRouteWithChildren
@@ -201,21 +207,22 @@ export interface FileRoutesByFullPath {
   '/main-player/playlists/favorites': typeof MainPlayerPlaylistsFavoritesRoute
   '/main-player/playlists/history': typeof MainPlayerPlaylistsHistoryRoute
   '/main-player/songs/$songId': typeof MainPlayerSongsSongIdRoute
-    '/main-player/songs/edit/$songId': typeof MainPlayerSongsEditSongIdRoute
   '/main-player/albums/': typeof MainPlayerAlbumsIndexRoute
   '/main-player/artists/': typeof MainPlayerArtistsIndexRoute
+  '/main-player/dj/': typeof MainPlayerDjIndexRoute
   '/main-player/download/': typeof MainPlayerDownloadIndexRoute
-    '/main-player/dj/': typeof MainPlayerDjIndexRoute
   '/main-player/folders/': typeof MainPlayerFoldersIndexRoute
   '/main-player/genres/': typeof MainPlayerGenresIndexRoute
   '/main-player/home/': typeof MainPlayerHomeIndexRoute
   '/main-player/lyrics/': typeof MainPlayerLyricsIndexRoute
   '/main-player/playlists/': typeof MainPlayerPlaylistsIndexRoute
+  '/main-player/plugins/': typeof MainPlayerPluginsIndexRoute
   '/main-player/queue/': typeof MainPlayerQueueIndexRoute
   '/main-player/search/': typeof MainPlayerSearchIndexRoute
   '/main-player/settings/': typeof MainPlayerSettingsIndexRoute
   '/main-player/songs/': typeof MainPlayerSongsIndexRoute
   '/main-player/lyrics/editor/$songId': typeof MainPlayerLyricsEditorSongIdRoute
+  '/main-player/songs/edit/$songId': typeof MainPlayerSongsEditSongIdRoute
   '/main-player/search/all/': typeof MainPlayerSearchAllIndexRoute
 }
 export interface FileRoutesByTo {
@@ -233,18 +240,20 @@ export interface FileRoutesByTo {
   '/main-player/songs/$songId': typeof MainPlayerSongsSongIdRoute
   '/main-player/albums': typeof MainPlayerAlbumsIndexRoute
   '/main-player/artists': typeof MainPlayerArtistsIndexRoute
+  '/main-player/dj': typeof MainPlayerDjIndexRoute
   '/main-player/download': typeof MainPlayerDownloadIndexRoute
-    '/main-player/dj': typeof MainPlayerDjIndexRoute
   '/main-player/folders': typeof MainPlayerFoldersIndexRoute
   '/main-player/genres': typeof MainPlayerGenresIndexRoute
   '/main-player/home': typeof MainPlayerHomeIndexRoute
   '/main-player/lyrics': typeof MainPlayerLyricsIndexRoute
   '/main-player/playlists': typeof MainPlayerPlaylistsIndexRoute
+  '/main-player/plugins': typeof MainPlayerPluginsIndexRoute
   '/main-player/queue': typeof MainPlayerQueueIndexRoute
   '/main-player/search': typeof MainPlayerSearchIndexRoute
   '/main-player/settings': typeof MainPlayerSettingsIndexRoute
   '/main-player/songs': typeof MainPlayerSongsIndexRoute
   '/main-player/lyrics/editor/$songId': typeof MainPlayerLyricsEditorSongIdRoute
+  '/main-player/songs/edit/$songId': typeof MainPlayerSongsEditSongIdRoute
   '/main-player/search/all': typeof MainPlayerSearchAllIndexRoute
 }
 export interface FileRoutesById {
@@ -263,17 +272,20 @@ export interface FileRoutesById {
   '/main-player/songs/$songId': typeof MainPlayerSongsSongIdRoute
   '/main-player/albums/': typeof MainPlayerAlbumsIndexRoute
   '/main-player/artists/': typeof MainPlayerArtistsIndexRoute
+  '/main-player/dj/': typeof MainPlayerDjIndexRoute
   '/main-player/download/': typeof MainPlayerDownloadIndexRoute
   '/main-player/folders/': typeof MainPlayerFoldersIndexRoute
   '/main-player/genres/': typeof MainPlayerGenresIndexRoute
   '/main-player/home/': typeof MainPlayerHomeIndexRoute
   '/main-player/lyrics/': typeof MainPlayerLyricsIndexRoute
   '/main-player/playlists/': typeof MainPlayerPlaylistsIndexRoute
+  '/main-player/plugins/': typeof MainPlayerPluginsIndexRoute
   '/main-player/queue/': typeof MainPlayerQueueIndexRoute
   '/main-player/search/': typeof MainPlayerSearchIndexRoute
   '/main-player/settings/': typeof MainPlayerSettingsIndexRoute
   '/main-player/songs/': typeof MainPlayerSongsIndexRoute
   '/main-player/lyrics/editor/$songId': typeof MainPlayerLyricsEditorSongIdRoute
+  '/main-player/songs/edit/$songId': typeof MainPlayerSongsEditSongIdRoute
   '/main-player/search/all/': typeof MainPlayerSearchAllIndexRoute
 }
 export interface FileRouteTypes {
@@ -293,17 +305,20 @@ export interface FileRouteTypes {
     | '/main-player/songs/$songId'
     | '/main-player/albums/'
     | '/main-player/artists/'
+    | '/main-player/dj/'
     | '/main-player/download/'
     | '/main-player/folders/'
     | '/main-player/genres/'
     | '/main-player/home/'
     | '/main-player/lyrics/'
     | '/main-player/playlists/'
+    | '/main-player/plugins/'
     | '/main-player/queue/'
     | '/main-player/search/'
     | '/main-player/settings/'
     | '/main-player/songs/'
     | '/main-player/lyrics/editor/$songId'
+    | '/main-player/songs/edit/$songId'
     | '/main-player/search/all/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -321,17 +336,20 @@ export interface FileRouteTypes {
     | '/main-player/songs/$songId'
     | '/main-player/albums'
     | '/main-player/artists'
+    | '/main-player/dj'
     | '/main-player/download'
     | '/main-player/folders'
     | '/main-player/genres'
     | '/main-player/home'
     | '/main-player/lyrics'
     | '/main-player/playlists'
+    | '/main-player/plugins'
     | '/main-player/queue'
     | '/main-player/search'
     | '/main-player/settings'
     | '/main-player/songs'
     | '/main-player/lyrics/editor/$songId'
+    | '/main-player/songs/edit/$songId'
     | '/main-player/search/all'
   id:
     | '__root__'
@@ -349,17 +367,20 @@ export interface FileRouteTypes {
     | '/main-player/songs/$songId'
     | '/main-player/albums/'
     | '/main-player/artists/'
+    | '/main-player/dj/'
     | '/main-player/download/'
     | '/main-player/folders/'
     | '/main-player/genres/'
     | '/main-player/home/'
     | '/main-player/lyrics/'
     | '/main-player/playlists/'
+    | '/main-player/plugins/'
     | '/main-player/queue/'
     | '/main-player/search/'
     | '/main-player/settings/'
     | '/main-player/songs/'
     | '/main-player/lyrics/editor/$songId'
+    | '/main-player/songs/edit/$songId'
     | '/main-player/search/all/'
   fileRoutesById: FileRoutesById
 }
@@ -428,6 +449,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MainPlayerQueueIndexRouteImport
       parentRoute: typeof MainPlayerRouteRoute
     }
+    '/main-player/plugins/': {
+      id: '/main-player/plugins/'
+      path: '/plugins'
+      fullPath: '/main-player/plugins/'
+      preLoaderRoute: typeof MainPlayerPluginsIndexRouteImport
+      parentRoute: typeof MainPlayerRouteRoute
+    }
     '/main-player/playlists/': {
       id: '/main-player/playlists/'
       path: '/playlists'
@@ -468,6 +496,13 @@ declare module '@tanstack/react-router' {
       path: '/download'
       fullPath: '/main-player/download/'
       preLoaderRoute: typeof MainPlayerDownloadIndexRouteImport
+      parentRoute: typeof MainPlayerRouteRoute
+    }
+    '/main-player/dj/': {
+      id: '/main-player/dj/'
+      path: '/dj'
+      fullPath: '/main-player/dj/'
+      preLoaderRoute: typeof MainPlayerDjIndexRouteImport
       parentRoute: typeof MainPlayerRouteRoute
     }
     '/main-player/artists/': {
@@ -547,6 +582,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MainPlayerSearchAllIndexRouteImport
       parentRoute: typeof MainPlayerRouteRoute
     }
+    '/main-player/songs/edit/$songId': {
+      id: '/main-player/songs/edit/$songId'
+      path: '/songs/edit/$songId'
+      fullPath: '/main-player/songs/edit/$songId'
+      preLoaderRoute: typeof MainPlayerSongsEditSongIdRouteImport
+      parentRoute: typeof MainPlayerRouteRoute
+    }
     '/main-player/lyrics/editor/$songId': {
       id: '/main-player/lyrics/editor/$songId'
       path: '/lyrics/editor/$songId'
@@ -568,17 +610,20 @@ interface MainPlayerRouteRouteChildren {
   MainPlayerSongsSongIdRoute: typeof MainPlayerSongsSongIdRoute
   MainPlayerAlbumsIndexRoute: typeof MainPlayerAlbumsIndexRoute
   MainPlayerArtistsIndexRoute: typeof MainPlayerArtistsIndexRoute
+  MainPlayerDjIndexRoute: typeof MainPlayerDjIndexRoute
   MainPlayerDownloadIndexRoute: typeof MainPlayerDownloadIndexRoute
   MainPlayerFoldersIndexRoute: typeof MainPlayerFoldersIndexRoute
   MainPlayerGenresIndexRoute: typeof MainPlayerGenresIndexRoute
   MainPlayerHomeIndexRoute: typeof MainPlayerHomeIndexRoute
   MainPlayerLyricsIndexRoute: typeof MainPlayerLyricsIndexRoute
   MainPlayerPlaylistsIndexRoute: typeof MainPlayerPlaylistsIndexRoute
+  MainPlayerPluginsIndexRoute: typeof MainPlayerPluginsIndexRoute
   MainPlayerQueueIndexRoute: typeof MainPlayerQueueIndexRoute
   MainPlayerSearchIndexRoute: typeof MainPlayerSearchIndexRoute
   MainPlayerSettingsIndexRoute: typeof MainPlayerSettingsIndexRoute
   MainPlayerSongsIndexRoute: typeof MainPlayerSongsIndexRoute
   MainPlayerLyricsEditorSongIdRoute: typeof MainPlayerLyricsEditorSongIdRoute
+  MainPlayerSongsEditSongIdRoute: typeof MainPlayerSongsEditSongIdRoute
   MainPlayerSearchAllIndexRoute: typeof MainPlayerSearchAllIndexRoute
 }
 
@@ -591,21 +636,22 @@ const MainPlayerRouteRouteChildren: MainPlayerRouteRouteChildren = {
   MainPlayerPlaylistsFavoritesRoute: MainPlayerPlaylistsFavoritesRoute,
   MainPlayerPlaylistsHistoryRoute: MainPlayerPlaylistsHistoryRoute,
   MainPlayerSongsSongIdRoute: MainPlayerSongsSongIdRoute,
-      MainPlayerSongsEditSongIdRoute,
   MainPlayerAlbumsIndexRoute: MainPlayerAlbumsIndexRoute,
   MainPlayerArtistsIndexRoute: MainPlayerArtistsIndexRoute,
+  MainPlayerDjIndexRoute: MainPlayerDjIndexRoute,
   MainPlayerDownloadIndexRoute: MainPlayerDownloadIndexRoute,
-      MainPlayerDjIndexRoute,
   MainPlayerFoldersIndexRoute: MainPlayerFoldersIndexRoute,
   MainPlayerGenresIndexRoute: MainPlayerGenresIndexRoute,
   MainPlayerHomeIndexRoute: MainPlayerHomeIndexRoute,
   MainPlayerLyricsIndexRoute: MainPlayerLyricsIndexRoute,
   MainPlayerPlaylistsIndexRoute: MainPlayerPlaylistsIndexRoute,
+  MainPlayerPluginsIndexRoute: MainPlayerPluginsIndexRoute,
   MainPlayerQueueIndexRoute: MainPlayerQueueIndexRoute,
   MainPlayerSearchIndexRoute: MainPlayerSearchIndexRoute,
   MainPlayerSettingsIndexRoute: MainPlayerSettingsIndexRoute,
   MainPlayerSongsIndexRoute: MainPlayerSongsIndexRoute,
   MainPlayerLyricsEditorSongIdRoute: MainPlayerLyricsEditorSongIdRoute,
+  MainPlayerSongsEditSongIdRoute: MainPlayerSongsEditSongIdRoute,
   MainPlayerSearchAllIndexRoute: MainPlayerSearchAllIndexRoute,
 }
 
