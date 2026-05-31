@@ -449,6 +449,9 @@ declare global {
     customLrcFilesSaveLocation: string | null;
     lastFmSessionName: string | null;
     lastFmSessionKey: string | null;
+    discordClientId: string | null;
+    spotifyClientId: string | null;
+    spotifyClientSecret: string | null;
   }
 
   interface UserData extends UserSettings {}

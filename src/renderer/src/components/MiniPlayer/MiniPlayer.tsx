@@ -92,7 +92,9 @@ export default function MiniPlayer(props: MiniPlayerProps) {
         <TitleBarContainer isLyricsVisible={isLyricsVisible} />
         <div
           className={`song-controls-container absolute top-[45%] left-1/2 flex h-fit -translate-x-1/2 -translate-y-1/2 items-center justify-center !bg-[transparent] shadow-none transition-[visibility,opacity] delay-50 dark:!bg-[transparent] ${
-            !isCurrentSongPlaying ? 'visible opacity-100' : 'invisible opacity-0'
+            !isCurrentSongPlaying
+              ? 'visible opacity-100'
+              : 'invisible opacity-0 group-hover:visible! group-hover:opacity-100! group-focus-within:visible! group-focus-within:opacity-100!'
           }`}
         >
           <Button
@@ -126,7 +128,7 @@ export default function MiniPlayer(props: MiniPlayerProps) {
             className="play-pause-btn text-font-color-white dark:text-font-color-white mx-2! h-fit scale-90 cursor-pointer rounded-none! border-0! bg-[transparent]! p-0! text-6xl outline-offset-1 transition-transform focus-visible:outline! dark:bg-[transparent]!"
             tooltipLabel={t('player.playPause')}
             iconClassName="text-5xl!"
-            clickHandler={toggleSongPlayback}
+            clickHandler={() => toggleSongPlayback()}
             iconName={isCurrentSongPlaying ? 'pause_circle' : 'play_circle'}
             removeFocusOnClick
           />

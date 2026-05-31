@@ -1,3 +1,4 @@
+import { resolveSpotifyUrl, isSpotifyUrl, embedSpotifyMetadataIntoFile } from './spotifyScraper';
 import { app, BrowserWindow, ipcMain, powerMonitor, shell } from 'electron';
 
 import addArtworkToAPlaylist from './core/addArtworkToAPlaylist';
@@ -114,8 +115,6 @@ import {
   startDownload,
   search as downloaderSearch,
   getYtdlpStatus,
-  resolveSpotifyUrl,
-  isSpotifyUrl,
   DOWNLOAD_FORMATS,
   type DownloadOptions,
 } from './downloader';
@@ -424,17 +423,23 @@ export function initializeIPC(mainWindow: BrowserWindow, abortSignal: AbortSigna
 
     ipcMain.handle(
       'app/downloader/register-song',
-      async (_, audioPath: string) => {
+      async (_, audioPath: string, spotifyMetaJson?: string) => {
         if (!audioPath) return { success: false, reason: 'no path' };
         try {
+          // If Spotify metadata was provided, embed it into the file first
+          if (spotifyMetaJson) {
+            try {
+              const meta = JSON.parse(spotifyMetaJson);
+              await embedSpotifyMetadataIntoFile(audioPath, meta);
+            } catch (e) {
+              logger.debug('embedSpotifyMetadata failed (non-fatal)', { err: String(e) });
+            }
+          }
           const existing = await getSongByPath(audioPath);
           if (existing) {
-            // Song already in library — resync tags (covers re-downloads)
             await reParseSong(audioPath);
             return { success: true, action: 'reparsed' };
           }
-          // Brand-new file — parse it into the library.
-          // tryToParseSong returns undefined if the path is already queued (safe to ignore).
           const parsePromise = tryToParseSong(audioPath);
           if (parsePromise) await parsePromise;
           return { success: true, action: 'parsed' };

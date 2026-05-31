@@ -9,6 +9,7 @@
 import type { InstalledPlugin, NPluginManifest } from './types';
 
 const STORAGE_KEY = 'nora_plugin_registry';
+export const PLUGIN_REGISTRY_CHANGED_EVENT = 'nora-plugin-registry-changed';
 
 function loadRegistry(): InstalledPlugin[] {
   try {
@@ -19,8 +20,15 @@ function loadRegistry(): InstalledPlugin[] {
   }
 }
 
+function dispatchRegistryChangeEvent() {
+  if (typeof window !== 'undefined' && window.dispatchEvent) {
+    window.dispatchEvent(new Event(PLUGIN_REGISTRY_CHANGED_EVENT));
+  }
+}
+
 function saveRegistry(plugins: InstalledPlugin[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(plugins));
+  dispatchRegistryChangeEvent();
 }
 
 /** Get all installed plugins */
@@ -52,7 +60,7 @@ export function enablePlugin(id: string): InstalledPlugin[] {
 export function disablePlugin(id: string): InstalledPlugin[] {
   const plugins = getInstalledPlugins();
   const updated = plugins.map((p) =>
-    p.id === id && !p.builtin ? { ...p, status: 'disabled' as const } : p
+    p.id === id ? { ...p, status: 'disabled' as const } : p
   );
   saveRegistry(updated);
   return updated;

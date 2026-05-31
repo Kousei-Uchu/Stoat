@@ -16,10 +16,13 @@ import { artistQuery } from '@renderer/queries/aritsts';
 import { homeQuery } from '@renderer/queries/home';
 import { songQuery } from '@renderer/queries/songs';
 import storage from '@renderer/utils/localStorage';
+import { SUPPORTS_PLUGINS } from '@renderer/platform';
+import { isPluginEnabled, PLUGIN_REGISTRY_CHANGED_EVENT } from '@renderer/plugins/registry';
 // import DataFetchingImage from '../../../assets/images/svg/Umbrella_Monochromatic.svg';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { lazy, useCallback, useContext, useMemo, useRef } from 'react';
+import { lazy, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 
 import favoritesPlaylistCoverImage from '../../../assets/images/webp/favorites-playlist-icon.webp';
@@ -71,7 +74,22 @@ function HomePage() {
   const SONG_CARD_MIN_WIDTH = 280;
   const ARTIST_WIDTH = 175;
 
+  const navigate = useNavigate();
+  const [showDjMoodPicker, setShowDjMoodPicker] = useState(false);
+  const [djPluginEnabled, setDjPluginEnabled] = useState(
+    () => SUPPORTS_PLUGINS && isPluginEnabled('dev.nora.dj')
+  );
   const recentlyAddedSongsContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const updatePluginStatus = () => {
+      setDjPluginEnabled(SUPPORTS_PLUGINS && isPluginEnabled('dev.nora.dj'));
+    };
+    window.addEventListener(PLUGIN_REGISTRY_CHANGED_EVENT, updatePluginStatus);
+    return () => {
+      window.removeEventListener(PLUGIN_REGISTRY_CHANGED_EVENT, updatePluginStatus);
+    };
+  }, []);
   const recentlyAddedSongsContainerDiamensions = useResizeObserver(recentlyAddedSongsContainerRef);
   const { noOfRecentlyAddedSongCards, noOfRecentandLovedArtists, noOfRecentandLovedSongCards } =
     useMemo(() => {
@@ -300,6 +318,16 @@ function HomePage() {
         <SecondaryContainer className="appear-from-bottom mt-4 h-fit max-h-full w-full pb-4 pl-8">
           <div className="title-container text-font-color-highlight dark:text-dark-font-color-highlight mt-1 mb-4 flex items-center justify-between text-2xl font-medium">
             {t('homePage.favoritesAndRecaps')}
+            {djPluginEnabled && (
+              <button
+                onClick={() => setShowDjMoodPicker(true)}
+                className="flex items-center gap-2 rounded-xl bg-font-color-highlight px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 dark:bg-dark-font-color-highlight dark:text-font-color-black"
+                title="Start a DJ session"
+              >
+                <span className="material-icons-round text-base leading-none">radio</span>
+                Start DJ Session
+              </button>
+            )}
           </div>
           <div className="flex gap-4">
             <SpecialPlaylistCard
@@ -382,6 +410,51 @@ function HomePage() {
           </div>
         )}
       </>
+
+      {/* ── DJ Session Mood Picker ─────────────────────────────────── */}
+      {djPluginEnabled && showDjMoodPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-background-color-1 p-6 shadow-2xl dark:bg-dark-background-color-1">
+            <h2 className="mb-1 text-xl font-bold">Start a DJ Session</h2>
+            <p className="mb-5 text-sm text-font-color-black/55 dark:text-font-color-white/55">
+              Nora will queue tracks, crossfade them, and announce each song — just like a real DJ.
+            </p>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-font-color-black/40 dark:text-font-color-white/40">
+              Choose a mood
+            </p>
+            <div className="mb-5 grid grid-cols-3 gap-2">
+              {([
+                { key: 'auto',      icon: 'auto_awesome',    label: 'Auto'      },
+                { key: 'chill',     icon: 'self_improvement', label: 'Chill'    },
+                { key: 'energetic', icon: 'bolt',            label: 'Energetic' },
+                { key: 'focus',     icon: 'psychology',      label: 'Focus'     },
+                { key: 'party',     icon: 'celebration',     label: 'Party'     },
+                { key: 'moody',     icon: 'nightlight',      label: 'Moody'     },
+              ] as const).map(({ key, icon, label }) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    storage.preferences.setPreferences('djEnabled' as any, true);
+                    storage.preferences.setPreferences('djMood' as any, key);
+                    setShowDjMoodPicker(false);
+                    navigate({ to: '/main-player/dj' });
+                  }}
+                  className="flex flex-col items-center gap-1 rounded-xl bg-background-color-2 py-3 text-xs font-medium transition-colors hover:bg-font-color-highlight hover:text-white dark:bg-dark-background-color-2 dark:hover:bg-dark-font-color-highlight dark:hover:text-font-color-black"
+                >
+                  <span className="material-icons-round text-xl leading-none">{icon}</span>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowDjMoodPicker(false)}
+              className="w-full rounded-xl bg-background-color-2 py-2 text-sm font-medium transition-colors hover:bg-background-color-2/80 dark:bg-dark-background-color-2"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </MainContainer>
   );
 }

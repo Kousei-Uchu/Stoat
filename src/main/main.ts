@@ -41,6 +41,7 @@ import { closeAllAbortControllers, saveAbortController } from './fs/controlAbort
 import { handleFileProtocol } from './handleFileProtocol';
 import { initializeIPC } from './ipc';
 import { setMainWindowRef, ensureYtdlp } from './downloader';
+import { setMainWindowRef as setSpotifyMainWindowRef } from './spotifyScraper';
 import logger from './logger';
 import { clearTempArtworkFolder } from './other/artworks';
 import { clearDiscordRpcActivity } from './other/discordRPC';
@@ -255,6 +256,7 @@ const createWindow = async () => {
     }
     // Start yt-dlp setup in background — downloads the binary on first launch
     setMainWindowRef(mainWindow);
+    setSpotifyMainWindowRef(mainWindow);
     ensureYtdlp().catch(() => { /* status broadcast via IPC */ });
   });
   mainWindow.webContents.setWindowOpenHandler((data: { url: string }) => {

@@ -131,14 +131,6 @@
     "cap:add:android": "npx cap add android"
   },
   "dependencies": {
-    "@capacitor/android": "^6.0.0",
-    "@capacitor/app": "^6.0.0",
-    "@capacitor/core": "^6.0.0",
-    "@capacitor/filesystem": "^6.0.0",
-    "@capacitor/ios": "^6.0.0",
-    "@capacitor/local-notifications": "^6.0.0",
-    "@capacitor/splash-screen": "^6.0.0",
-    "@capacitor/status-bar": "^6.0.0",
     "@electric-sql/pglite": "^0.4.4",
     "@electric-sql/pglite-tools": "^0.3.4",
     "@electron-toolkit/preload": "^3.0.2",
@@ -173,15 +165,25 @@
     "segmentit": "^2.0.3",
     "sharp": "^0.34.5",
     "songlyrics": "^2.4.8",
-    "spotify-url-info": "^3.3.0",
     "tailwind-merge": "^3.5.0",
     "wanakana": "^5.3.1",
     "winston": "^3.19.0",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "spotify-url-info": "^3.3.0",
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/app": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/filesystem": "^6.0.0",
+    "@capacitor/ios": "^6.0.0",
+    "@capacitor/local-notifications": "^6.0.0",
+    "@capacitor/splash-screen": "^6.0.0",
+    "@capacitor/status-bar": "^6.0.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "puppeteer": "^22.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",
-    "@capacitor/cli": "^6.0.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@rolldown/plugin-babel": "^0.2.3",
     "@tailwindcss/vite": "^4.2.2",
@@ -194,7 +196,6 @@
     "@types/pinyin": "^2.10.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
     "@vitest/coverage-v8": "^4.1.2",
     "babel-plugin-react-compiler": "^1.0.0",
     "drizzle-kit": "^0.31.1",
@@ -214,6 +215,8 @@
     "typescript": "^6.0.2",
     "vite": "^8.0.8",
     "vitest": "^4.1.2",
-    "yoctocolors": "^2.1.2"
+    "yoctocolors": "^2.1.2",
+    "@capacitor/cli": "^6.0.0",
+    "@vitejs/plugin-react": "^6.0.1"
   }
 }

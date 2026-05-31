@@ -1,6 +1,8 @@
 import { store } from '@renderer/store/store';
 import { useStore } from '@tanstack/react-store';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSuspenseQuery } from '@tanstack/react-query';
+import { settingsQuery } from '@renderer/queries/settings';
 
 import DefaultSongCover from '../../assets/images/webp/song_cover_default.webp';
 import useMouseActiveState from '../../hooks/useMouseActiveState';
@@ -23,6 +25,9 @@ const FullScreenPlayer = () => {
   const [isLyricsVisible, setIsLyricsVisible] = useState(false);
   const [isLyricsAvailable, setIsLyricsAvailable] = useState(false);
   const [songPos, setSongPos] = useState(0);
+
+  const { data: settings } = useSuspenseQuery(settingsQuery.all);
+  const isDarkMode = settings?.isDarkMode ?? true;
 
   const fullScreenPlayerContainerRef = useRef<HTMLDivElement>(null);
   const { isMouseActive } = useMouseActiveState(fullScreenPlayerContainerRef, {
@@ -50,11 +55,11 @@ const FullScreenPlayer = () => {
 
   return (
     <div
-      className={`full-screen-player dark bg-dark-background-color-1! relative ${!isCurrentSongPlaying && 'paused'} ${
+      className={`full-screen-player ${isDarkMode ? 'dark' : ''} bg-dark-background-color-1! relative ${!isCurrentSongPlaying && 'paused'} ${
         preferences?.isReducedMotion ? 'reduced-motion' : ''
       } grid !h-screen w-full grid-rows-[auto_1fr] overflow-y-hidden`}
     >
-      <div className="background-cover-img-container absolute top-0 left-0 h-full w-full">
+      <div className="background-cover-img-container pointer-events-none absolute top-0 left-0 z-0 h-full w-full">
         <Img
           src={imgPath}
           fallbackSrc={DefaultSongCover}

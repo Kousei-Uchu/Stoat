@@ -23,23 +23,28 @@ const seekbarScrollIntervals: DropdownOption<string>[] = [
 
 const AudioPlaybackSettings = () => {
   const preferences = useStore(store, (state) => state.localStorage.preferences);
-
   const { t } = useTranslation();
 
   const [seekbarScrollInterval, setSeekbarScrollInterval] = useState('5');
-
   const [playbackRateInterval, setPlaybackRateInterval] = useState(1);
+  const [enableCrossfade, setEnableCrossfade] = useState(
+    storage.preferences.getPreferences('enableCrossfade') ?? false
+  );
+  const [crossfadeDuration, setCrossfadeDuration] = useState(
+    storage.preferences.getPreferences('crossfadeDuration') ?? 5
+  );
+  const [enableLoudnessNormalization, setEnableLoudnessNormalization] = useState(
+    storage.preferences.getPreferences('enableLoudnessNormalization') ?? false
+  );
 
   useEffect(() => {
     const interval = storage.preferences.getPreferences('seekbarScrollInterval');
     const playbackRate = storage.playback.getPlaybackOptions('playbackRate');
-
     setPlaybackRateInterval(playbackRate);
     setSeekbarScrollInterval(interval.toString());
   }, []);
 
   const playbackRateSeekBarCssProperties: CSSProperties = {};
-
   playbackRateSeekBarCssProperties['--seek-before-width'] = `${
     ((playbackRateInterval - 0.25) / (4 - 0.25)) * 100
   }%`;
@@ -122,6 +127,63 @@ const AudioPlaybackSettings = () => {
               setSeekbarScrollInterval(val);
               storage.preferences.setPreferences('seekbarScrollInterval', parseFloat(val));
             }}
+          />
+        </li>
+
+        {/* ── Crossfade ── */}
+        <li className="crossfade-settings mb-4">
+          <div className="description">
+            Enable a smooth fade between tracks so playback never cuts abruptly.
+          </div>
+          <Checkbox
+            id="enableCrossfade"
+            isChecked={enableCrossfade}
+            checkedStateUpdateFunction={(state) => {
+              setEnableCrossfade(state);
+              storage.preferences.setPreferences('enableCrossfade', state);
+            }}
+            labelContent={t('settingsPage.enableCrossfade') || 'Enable crossfade between tracks'}
+          />
+          {enableCrossfade && (
+            <div className="ml-6 mt-2 flex items-center gap-3">
+              <label className="w-28 text-xs text-font-color-black/55 dark:text-font-color-white/55">
+                Duration
+              </label>
+              <input
+                type="range"
+                min={1}
+                max={12}
+                step={1}
+                value={crossfadeDuration}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setCrossfadeDuration(v);
+                  storage.preferences.setPreferences('crossfadeDuration', v);
+                }}
+                className="flex-1 accent-font-color-highlight dark:accent-dark-font-color-highlight"
+              />
+              <span className="w-10 text-right text-xs tabular-nums text-font-color-black/55 dark:text-font-color-white/55">
+                {crossfadeDuration}s
+              </span>
+            </div>
+          )}
+        </li>
+
+        {/* ── Loudness normalisation ── */}
+        <li className="loudness-normalisation-settings mb-4">
+          <div className="description">
+            Keep all tracks at a consistent volume level during playback.
+          </div>
+          <Checkbox
+            id="enableLoudnessNormalization"
+            isChecked={enableLoudnessNormalization}
+            checkedStateUpdateFunction={(state) => {
+              setEnableLoudnessNormalization(state);
+              storage.preferences.setPreferences('enableLoudnessNormalization', state);
+            }}
+            labelContent={
+              t('settingsPage.enableLoudnessNormalization') || 'Enable loudness normalisation'
+            }
           />
         </li>
       </ul>

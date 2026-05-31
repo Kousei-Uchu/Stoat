@@ -463,6 +463,11 @@ export const userSettings = pgTable(
     lastFmSessionName: varchar('lastfm_session_name', { length: 255 }),
     lastFmSessionKey: varchar('lastfm_session_key', { length: 255 }),
 
+    // API credentials (stored in DB, configurable via Settings → Accounts)
+    discordClientId: varchar('discord_client_id', { length: 255 }),
+    spotifyClientId: varchar('spotify_client_id', { length: 255 }),
+    spotifyClientSecret: varchar('spotify_client_secret', { length: 255 }),
+
     createdAt: timestamp('created_at', { withTimezone: false }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: false }).defaultNow().notNull()
   },

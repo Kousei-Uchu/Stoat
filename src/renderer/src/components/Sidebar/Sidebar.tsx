@@ -1,4 +1,5 @@
 import { SUPPORTS_PLUGINS } from '../../platform';
+import { isPluginEnabled, PLUGIN_REGISTRY_CHANGED_EVENT } from '../../plugins/registry';
 import { store } from '@renderer/store/store';
 import { linkOptions } from '@tanstack/react-router';
 import { useStore } from '@tanstack/react-store';
@@ -12,6 +13,23 @@ const Sidebar = memo(() => {
   const bodyBackgroundImage = useStore(store, (state) => state.bodyBackgroundImage);
 
   const { t } = useTranslation();
+  const [downloadPluginEnabled, setDownloadPluginEnabled] = useState(
+    () => SUPPORTS_PLUGINS && isPluginEnabled('dev.nora.downloader')
+  );
+  const [djPluginEnabled, setDjPluginEnabled] = useState(
+    () => SUPPORTS_PLUGINS && isPluginEnabled('dev.nora.dj')
+  );
+
+  useEffect(() => {
+    const updatePluginStatus = () => {
+      setDownloadPluginEnabled(SUPPORTS_PLUGINS && isPluginEnabled('dev.nora.downloader'));
+      setDjPluginEnabled(SUPPORTS_PLUGINS && isPluginEnabled('dev.nora.dj'));
+    };
+    window.addEventListener(PLUGIN_REGISTRY_CHANGED_EVENT, updatePluginStatus);
+    return () => {
+      window.removeEventListener(PLUGIN_REGISTRY_CHANGED_EVENT, updatePluginStatus);
+    };
+  }, []);
 
   // Build the base nav items (always present on all platforms)
   const baseItems = useMemo(
@@ -94,38 +112,44 @@ const Sidebar = memo(() => {
   );
 
   // Plugin-gated items — only rendered on non-iOS platforms
-  const pluginItems = useMemo(
-    () =>
-      SUPPORTS_PLUGINS
-        ? linkOptions([
-            {
-              to: '/main-player/download' as const,
-              id: 'Download',
-              parentClassName: 'download',
-              icon: 'download',
-              content: t('sideBar.download') || 'Download',
-              isActive: false
-            },
-            {
-              to: '/main-player/dj' as const,
-              id: 'DjMode',
-              parentClassName: 'dj',
-              icon: 'radio',
-              content: t('sideBar.djMode') || 'DJ Mode',
-              isActive: false
-            },
-            {
-              to: '/main-player/plugins' as const,
-              id: 'Plugins',
-              parentClassName: 'plugins',
-              icon: 'extension',
-              content: t('sideBar.plugins') || 'Plugins',
-              isActive: false
-            },
-          ])
-        : [],
-    [t]
-  );
+  const pluginItems = useMemo(() => {
+    if (!SUPPORTS_PLUGINS) return [];
+
+    const items: any[] = [];
+
+    if (downloadPluginEnabled) {
+      items.push({
+        to: '/main-player/download' as const,
+        id: 'Download',
+        parentClassName: 'download',
+        icon: 'download',
+        content: t('sideBar.download') || 'Download',
+        isActive: false
+      });
+    }
+
+    if (djPluginEnabled) {
+      items.push({
+        to: '/main-player/dj' as const,
+        id: 'DjMode',
+        parentClassName: 'dj',
+        icon: 'radio',
+        content: t('sideBar.djMode') || 'DJ Mode',
+        isActive: false
+      });
+    }
+
+    items.push({
+      to: '/main-player/plugins' as const,
+      id: 'Plugins',
+      parentClassName: 'plugins',
+      icon: 'extension',
+      content: t('sideBar.plugins') || 'Plugins',
+      isActive: false
+    });
+
+    return linkOptions(items);
+  }, [t, downloadPluginEnabled, djPluginEnabled]);
 
   // Merge: Search → [plugin items] → Songs → ...
   // Insert plugin items after Search (index 1) and before Songs

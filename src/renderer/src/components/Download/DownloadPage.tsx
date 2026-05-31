@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import MainContainer from '../MainContainer';
 import TitleContainer from '../TitleContainer';
+import { SpotifyDebugPanel } from '../SpotifyDebugPanel';
 import storage from '../../utils/localStorage';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -610,7 +611,10 @@ export default function DownloadPage() {
         // Register the downloaded file into the Nora library so it appears
         // in the Songs tab and its .lrc file is found by the lyrics engine.
         if (outputPath && typeof outputPath === 'string') {
-          window.api.downloader.registerSong?.(outputPath).catch(() => {
+          const spotifyJson = (data as any)?.spotifyMeta
+            ? JSON.stringify((data as any).spotifyMeta)
+            : undefined;
+          window.api.downloader.registerSong?.(outputPath, spotifyJson).catch(() => {
             // Silent — library registration is best-effort
           });
         }
@@ -888,6 +892,9 @@ export default function DownloadPage() {
           </div>
         )}
       </div>
+
+      {/* ── Spotify Debug Panel ── */}
+      <SpotifyDebugPanel />
     </MainContainer>
   );
 }

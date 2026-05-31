@@ -10,7 +10,7 @@ export default defineConfig({
     build: {
       sourcemap: true,
       minify: false,
-      rollupOptions: { input: '/src/main/main.ts', external: ['sharp'] }
+      rollupOptions: { input: '/src/main/main.ts', external: ['sharp', 'spotify-url-info'] }
     },
     resolve: {
       alias: {

@@ -323,8 +323,8 @@ const downloader = {
   removeOnProgress: (callback: (_: unknown, data: any) => void) => ipcRenderer.removeListener('downloader/progress', callback),
   onYtdlpStatus: (callback: (_: unknown, data: any) => void) => ipcRenderer.on('downloader/ytdlp-status', callback),
   removeOnYtdlpStatus: (callback: (_: unknown, data: any) => void) => ipcRenderer.removeListener('downloader/ytdlp-status', callback),
-  registerSong: (audioPath: string): Promise<{ success: boolean; action?: string; reason?: string }> =>
-    ipcRenderer.invoke('app/downloader/register-song', audioPath),
+  registerSong: (audioPath: string, spotifyMetaJson?: string): Promise<{ success: boolean; action?: string; reason?: string }> =>
+    ipcRenderer.invoke('app/downloader/register-song', audioPath, spotifyMetaJson),
   respondToDuplicate: (downloadId: string, action: 'skip' | 'overwrite'): void =>
     ipcRenderer.send('app/downloader/duplicate-response', { downloadId, action }),
   onDuplicate: (callback: (_: unknown, data: any) => void) =>
@@ -619,6 +619,14 @@ const utils = {
   }
 };
 
+// $ DEBUG EVENTS
+const debugEvents = {
+  onSpotifyDebug: (callback: (_: unknown, event: any) => void) =>
+    ipcRenderer.on('spotify/debug', callback),
+  removeOnSpotifyDebug: (callback: (_: unknown, event: any) => void) =>
+    ipcRenderer.removeListener('spotify/debug', callback),
+};
+
 export const api = {
   properties,
   windowControls,
@@ -650,7 +658,8 @@ export const api = {
   settingsHelpers,
   appControls,
   utils,
-  queue
+  queue,
+  debugEvents,
 };
 
 contextBridge.exposeInMainWorld('api', api);
