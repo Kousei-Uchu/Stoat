@@ -1,5 +1,6 @@
 import { resolveSpotifyUrl, isSpotifyUrl, embedSpotifyMetadataIntoFile } from './spotifyScraper';
-import { app, BrowserWindow, ipcMain, powerMonitor, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, powerMonitor, shell } from 'electron';
+import { promises as fs } from 'fs';
 
 import addArtworkToAPlaylist from './core/addArtworkToAPlaylist';
 import addSongsFromFolderStructures from './core/addMusicFolder';
@@ -623,6 +624,27 @@ export function initializeIPC(mainWindow: BrowserWindow, abortSignal: AbortSigna
         forceMainRestart = false
       ) => getRendererLogs(mes, data, logToConsoleType, forceWindowRestart, forceMainRestart)
     );
+
+    ipcMain.handle('app/exportDownloadLogs', async (_: unknown, logText: string) => {
+      const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+        title: 'Save Spotify download logs',
+        defaultPath: 'spotify-download-logs.txt',
+        buttonLabel: 'Save logs',
+        filters: [{ name: 'Text Files', extensions: ['txt'] }],
+      });
+
+      if (canceled || !filePath) {
+        return { success: false };
+      }
+
+      try {
+        await fs.writeFile(filePath, logText, 'utf8');
+        return { success: true, filePath };
+      } catch (error) {
+        logger.error('Failed to export Spotify download logs', { error });
+        return { success: false, filePath };
+      }
+    });
 
     ipcMain.handle('app/removeAMusicFolder', (_, absolutePath: string) =>
       removeMusicFolder(absolutePath)

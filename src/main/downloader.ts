@@ -59,6 +59,7 @@ export interface DownloadOptions {
   year?: string;
   trackNumber?: string;
   genres?: string[];
+  spotifyRawMeta?: unknown;
   // Batch download
   isBatch?: boolean;
   batchId?: string;
@@ -958,6 +959,7 @@ async function runYtdlpDownload(
     text: 'Download complete',
     outputPath: lastFile,
     lrcPath,
+    spotifyMeta: options.spotifyRawMeta,
   });
 }
 
@@ -1024,6 +1026,7 @@ export async function startDownload(
               year: meta.year,
               trackNumber: meta.trackNumber,
               genres: meta.genres,
+              spotifyRawMeta: scrapedMeta,
             },
             binPath
           );
@@ -1032,11 +1035,12 @@ export async function startDownload(
 
         // Batch: album / playlist / artist
         sendProgress(task, { event: 'resolving', text: 'Fetching Spotify track list…' });
-        let tracks: SpotifyTrackMeta[] = [];
-        if (parsed.type === 'album') tracks = (await fetchSpotifyAlbumTracks(parsed.id)).map(normalizeSpotifyTrackMeta);
-        else if (parsed.type === 'playlist') tracks = (await fetchSpotifyPlaylistTracks(parsed.id)).map(normalizeSpotifyTrackMeta);
-        else if (parsed.type === 'artist') tracks = (await fetchSpotifyArtistTracks(parsed.id)).map(normalizeSpotifyTrackMeta);
+        let rawSpotifyTracks: any[] = [];
+        if (parsed.type === 'album') rawSpotifyTracks = await fetchSpotifyAlbumTracks(parsed.id);
+        else if (parsed.type === 'playlist') rawSpotifyTracks = await fetchSpotifyPlaylistTracks(parsed.id);
+        else if (parsed.type === 'artist') rawSpotifyTracks = await fetchSpotifyArtistTracks(parsed.id);
 
+        const tracks = rawSpotifyTracks.map(normalizeSpotifyTrackMeta);
         if (tracks.length === 0) throw new Error('No tracks found for this Spotify URL.');
 
         task.batchTotal = tracks.length;
@@ -1081,6 +1085,7 @@ export async function startDownload(
                 year: meta.year,
                 trackNumber: meta.trackNumber,
                 genres: meta.genres,
+                spotifyRawMeta: rawSpotifyTracks[i],
                 isBatch: true,
                 batchId: id,
               },

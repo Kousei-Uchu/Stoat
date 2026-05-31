@@ -20,17 +20,12 @@ interface SearchResult {
   matchScore?: number;
 }
 
-interface SpotifyTrackMeta {
-  id: string;
-  title: string;
-  artist: string;
-  album: string;
-  albumArtist: string;
-  year: string;
-  trackNumber: string;
-  duration: number;
-  genres: string[];
-  albumCover?: string;
+interface SpotifyProgressEvent {
+  timestamp: number;
+  level: 'info' | 'warning' | 'error';
+  step: string;
+  message: string;
+  details?: unknown;
 }
 
 interface YtDlpStatus {
@@ -714,11 +709,11 @@ export default function DownloadPage() {
           url,
           format,
           quality: 'best',
-          provider: 'generic',
+          provider: urlKind.startsWith('spotify') ? 'spotify' : 'generic',
           destination: downloadFolder || undefined,
           downloadLyrics,
           ...meta,
-        });
+        } as any);
         activeJobId.current = id;
       } catch (err: any) {
         setJobStatus({ kind: 'error', message: err?.message ?? 'Failed to start' });
@@ -745,6 +740,96 @@ export default function DownloadPage() {
 
   const formatKeys = Object.keys(formats);
   const isBatch = urlKind === 'spotify_album' || urlKind === 'spotify_playlist' || urlKind === 'spotify_artist';
+
+  const [spotifyProgressEvents, setSpotifyProgressEvents] = useState<SpotifyProgressEvent[]>([]);
+  const [exportingLogs, setExportingLogs] = useState(false);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
+
+  const exportSpotifyDownloadLogs = useCallback(async () => {
+    if (spotifyProgressEvents.length === 0) {
+      setExportStatus('No Spotify progress logs available to export.');
+      return;
+    }
+
+    setExportingLogs(true);
+    setExportStatus(null);
+
+    const logText = spotifyProgressEvents
+      .map((event) => {
+        const timestamp = new Date(event.timestamp).toISOString();
+        const details = event.details ? `\nDetails: ${JSON.stringify(event.details, null, 2)}` : '';
+        return `[${timestamp}] [${event.level.toUpperCase()}] ${event.step} - ${event.message}${details}`;
+      })
+      .join('\n\n');
+
+    try {
+      const result = await window.api.log.exportDownloadLogs(logText);
+      if (result?.success) {
+        setExportStatus(`Saved logs to ${result.filePath}`);
+      } else {
+        setExportStatus('Export canceled.');
+      }
+    } catch (error: any) {
+      setExportStatus(`Log export failed: ${error?.message ?? String(error)}`);
+    } finally {
+      setExportingLogs(false);
+    }
+  }, [spotifyProgressEvents]);
+
+  // Listen for structured spotify progress events from main process
+  useEffect(() => {
+    const handler = (_: unknown, data: any) => {
+      const event: SpotifyProgressEvent = {
+        timestamp: data?.timestamp ?? Date.now(),
+        level: data?.level ?? 'info',
+        step: data?.step ?? data?.event ?? 'spotify',
+        message: data?.message ?? data?.text ?? '',
+        details: data?.details ?? data,
+      };
+
+      console.groupCollapsed(`[Spotify] ${event.step}`);
+      console.log(event.message);
+      if (event.details) console.log(event.details);
+      console.groupEnd();
+
+      setSpotifyProgressEvents((prev) => {
+        const updated = [...prev, event];
+        return updated.length > 200 ? updated.slice(-200) : updated;
+      });
+    };
+    window.api?.downloader?.onSpotifyProgress?.(handler);
+    return () => {
+      window.api?.downloader?.removeOnSpotifyProgress?.(handler);
+    };
+  }, []);
+
+  // Handle scheduled downloads emitted by main while enrichment runs.
+  // These events are informational only; the downloader handles the batch
+  // download itself to avoid duplicate downloads and extra Spotify metadata fetches.
+  useEffect(() => {
+    const handler = (_: unknown, info: any) => {
+      console.groupCollapsed('[Spotify] scheduled download event');
+      console.log(info);
+      console.groupEnd();
+
+      const event: SpotifyProgressEvent = {
+        timestamp: Date.now(),
+        level: 'info',
+        step: 'scheduled_download',
+        message: `Scheduled download for ${info.title ?? info.trackId}`,
+        details: info,
+      };
+
+      setSpotifyProgressEvents((prev) => {
+        const updated = [...prev, event];
+        return updated.length > 200 ? updated.slice(-200) : updated;
+      });
+    };
+    window.api?.downloader?.onScheduleDownload?.(handler);
+    return () => {
+      window.api?.downloader?.removeOnScheduleDownload?.(handler);
+    };
+  }, []);
 
   return (
     <MainContainer className="appear-from-bottom text-font-color-black dark:text-font-color-white">
@@ -846,6 +931,54 @@ export default function DownloadPage() {
         {/* ── Status ── */}
         {jobStatus.kind !== 'idle' && <StatusBar status={jobStatus} />}
 
+        {/* ── Spotify progress tracker ── */}
+        <div className="rounded-xl border border-background-color-1 bg-background-color-2/40 p-4 dark:border-dark-background-color-1 dark:bg-dark-background-color-2/40">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium">Spotify download progress</p>
+              <p className="text-xs text-font-color-black/50 dark:text-font-color-white/50">
+                Tracks API/auth/fallback steps as they occur.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={exportSpotifyDownloadLogs}
+              disabled={exportingLogs || spotifyProgressEvents.length === 0}
+              className="rounded-lg border border-background-color-1 bg-background-color-1 px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50 dark:border-dark-background-color-1 dark:bg-dark-background-color-1"
+            >
+              {exportingLogs ? 'Exporting…' : 'Export logs'}
+            </button>
+          </div>
+          <div className="mt-3 text-xs font-mono text-font-color-black/70 dark:text-font-color-white/70">
+            {exportStatus && <div className="mb-2 text-[11px]">{exportStatus}</div>}
+            {spotifyProgressEvents.length === 0 ? (
+              <div className="text-[11px] text-font-color-black/40 dark:text-font-color-white/40">
+                Waiting for Spotify progress events.
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-48 overflow-y-auto rounded-xl border border-background-color-1 bg-background-color-1/80 p-3 dark:border-dark-background-color-1 dark:bg-dark-background-color-2/60">
+                {spotifyProgressEvents.slice(-8).map((event, index) => (
+                  <div key={`${event.timestamp}-${index}`} className="space-y-1">
+                    <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-font-color-black/50 dark:text-font-color-white/50">
+                      <span>{new Date(event.timestamp).toLocaleTimeString()}</span>
+                      <span className="rounded-full bg-background-color-2 px-2 py-0.5 text-[10px] text-font-color-black dark:bg-dark-background-color-1 dark:text-font-color-white">
+                        {event.level}
+                      </span>
+                      <span>{event.step}</span>
+                    </div>
+                    <div className="text-sm text-font-color-black dark:text-font-color-white">{event.message}</div>
+                    {event.details !== undefined && event.details !== null && (
+                      <pre className="whitespace-pre-wrap break-words rounded-xl bg-background-color-2 px-2 py-1 text-[10px] text-font-color-black/60 dark:bg-dark-background-color-1 dark:text-font-color-white/60">
+                        {JSON.stringify(event.details, null, 2)}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* ── Search results ── */}
         {results.length > 0 && (
           <div className="rounded-xl border border-background-color-1 bg-background-color-2/40 dark:border-dark-background-color-1 dark:bg-dark-background-color-2/40">
@@ -894,6 +1027,20 @@ export default function DownloadPage() {
       </div>
 
       {/* ── Spotify Debug Panel ── */}
+      {/* Minimal Spotify progress indicator */}
+      {spotifyProgressEvents.length > 0 && (
+        <div className="fixed bottom-28 right-4 z-50 w-80 rounded-lg bg-background-color-2/80 p-2 backdrop-blur-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-mono">Spotify: {spotifyProgressEvents.length} events</span>
+            <button className="text-xs text-font-color-black/50" onClick={() => setSpotifyProgressEvents([])}>Clear</button>
+          </div>
+          <div className="mt-2 max-h-28 overflow-y-auto text-xs font-mono">
+            {spotifyProgressEvents.slice(-6).map((e, i) => (
+              <div key={i} className="truncate text-[11px] text-font-color-black/60 dark:text-font-color-white/60">{e.step}: {String(e.message).slice(0, 80)}</div>
+            ))}
+          </div>
+        </div>
+      )}
       <SpotifyDebugPanel />
     </MainContainer>
   );

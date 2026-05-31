@@ -323,6 +323,10 @@ const downloader = {
   removeOnProgress: (callback: (_: unknown, data: any) => void) => ipcRenderer.removeListener('downloader/progress', callback),
   onYtdlpStatus: (callback: (_: unknown, data: any) => void) => ipcRenderer.on('downloader/ytdlp-status', callback),
   removeOnYtdlpStatus: (callback: (_: unknown, data: any) => void) => ipcRenderer.removeListener('downloader/ytdlp-status', callback),
+  onSpotifyProgress: (callback: (_: unknown, data: any) => void) => ipcRenderer.on('spotify/progress', callback),
+  removeOnSpotifyProgress: (callback: (_: unknown, data: any) => void) => ipcRenderer.removeListener('spotify/progress', callback),
+  onScheduleDownload: (callback: (_: unknown, data: any) => void) => ipcRenderer.on('spotify/scheduleDownload', callback),
+  removeOnScheduleDownload: (callback: (_: unknown, data: any) => void) => ipcRenderer.removeListener('spotify/scheduleDownload', callback),
   registerSong: (audioPath: string, spotifyMetaJson?: string): Promise<{ success: boolean; action?: string; reason?: string }> =>
     ipcRenderer.invoke('app/downloader/register-song', audioPath, spotifyMetaJson),
   respondToDuplicate: (downloadId: string, action: 'skip' | 'overwrite'): void =>
@@ -518,7 +522,9 @@ const log = {
       forceMainRestart
     );
   },
-  openLogFile: (): void => ipcRenderer.send('app/openLogFile')
+  openLogFile: (): void => ipcRenderer.send('app/openLogFile'),
+  exportDownloadLogs: (logText: string): Promise<{ success: boolean; filePath?: string }> =>
+    ipcRenderer.invoke('app/exportDownloadLogs', logText)
 };
 
 // $ APP MINI PLAYER CONTROLS

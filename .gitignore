@@ -10,3 +10,5 @@ coverage/
 .npmrc
 .github/plans/
 *.zip
+exampleSpotifyScraping.js
+ios/

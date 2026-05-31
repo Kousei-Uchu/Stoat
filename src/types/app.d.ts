@@ -209,6 +209,7 @@ declare global {
     provider?: 'youtube' | 'ytmusic' | 'soundcloud' | 'spotify' | 'generic';
     extractAudio?: boolean;
     searchQuery?: string;
+    downloadLyrics?: boolean;
   }
 
   type PlayerVolume = { isMuted: boolean; value: number };
