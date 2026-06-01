@@ -1,334 +1,196 @@
 # Nora — Setup, Build & Run Guide
 
-> Original project: [Sandakan/Nora](https://github.com/Sandakan/Nora)  
-> This fork by Sorren ([@Kousei-Uchu](https://github.com/Kousei-Uchu))
+This guide covers everything from a clean clone to a running dev build and a packaged installer.
 
 ---
 
-## Contents
+## Prerequisites
 
-1. [Prerequisites](#1-prerequisites)
-2. [Clone & Install](#2-clone--install)
-3. [Environment Variables](#3-environment-variables)
-4. [Desktop (Electron)](#4-desktop-electron)
-5. [iOS (Capacitor)](#5-ios-capacitor)
-6. [Android (Capacitor)](#6-android-capacitor)
-7. [Plugin System](#7-plugin-system)
-8. [Troubleshooting](#8-troubleshooting)
+| Tool | Version | Notes |
+|---|---|---|
+| Node.js | 20 LTS or 22 LTS | [nodejs.org](https://nodejs.org) |
+| npm | 11+ | Comes with Node |
+| Git | Any recent | |
+| Python 3 | 3.10+ | Only needed if you want to test spotdl CLI manually |
+| **Windows only**: PowerShell 5+ | Built-in on Win10/11 | Used by the binary downloader for zip extraction |
+| **macOS only**: Xcode CLI tools | `xcode-select --install` | Provides `tar`, `unzip`, `chmod` |
 
 ---
 
-## 1. Prerequisites
-
-### All platforms
-| Tool | Version | Notes |
-|------|---------|-------|
-| Node.js | **22 LTS** or newer | Required. Use [nvm](https://github.com/nvm-sh/nvm) or [fnm](https://github.com/Schniz/fnm) |
-| npm | **10+** | Ships with Node 22 |
-| Git | any | |
-
-> **Windows note:** Use PowerShell or Git Bash. WSL2 works but paths differ.
-
-### Desktop only
-| Tool | Version | Notes |
-|------|---------|-------|
-| No extra tools needed | — | Electron and yt-dlp are managed automatically |
-
-> yt-dlp (~10 MB) is auto-downloaded to your app data folder on first launch of the Download plugin. No manual install needed.
-
-### iOS only (macOS required)
-| Tool | Version | Notes |
-|------|---------|-------|
-| macOS | 13 Ventura+ | Xcode requires it |
-| Xcode | **15+** | Install from Mac App Store |
-| Xcode Command Line Tools | latest | `xcode-select --install` |
-| CocoaPods | **1.14+** | `sudo gem install cocoapods` |
-
-### Android only
-| Tool | Version | Notes |
-|------|---------|-------|
-| Android Studio | **Hedgehog (2023.1.1)+** | [Download](https://developer.android.com/studio) |
-| JDK | **17** | Bundled with Android Studio, or install separately |
-| Android SDK | API 33+ | Install via Android Studio SDK Manager |
-
----
-
-## 2. Clone & Install
+## 1. Clone & install dependencies
 
 ```bash
-git clone https://github.com/Kousei-Uchu/Nora.git
-cd Nora
+git clone https://github.com/Kousei-Uchu/Stoat.git
+cd Stoat
 npm install
 ```
 
-> If you see peer dependency warnings about `@capacitor/*`, they are expected — Capacitor packages are optional and only used for mobile builds.
-
-### If `npm install` fails with `ERESOLVE`
-
-The project uses Vite 8. If you see a peer dependency conflict with `@vitejs/plugin-react`, ensure you have the correct version:
-
-```bash
-# Should print ^6.0.1 or higher
-npm show @vitejs/plugin-react version
-```
-
-If it still fails:
-```bash
-npm install --legacy-peer-deps
-```
+This installs all JS/TS dependencies. It does **not** fetch the spotdl or ffmpeg binaries yet.
 
 ---
 
-## 3. Environment Variables
+## 2. Download the spotdl + ffmpeg binaries
 
-Copy the example file and fill in what you need:
+This step downloads pre-built binaries into `resources/bin/` so they can be bundled into the app. You only need to do this once, or again after updating `SPOTDL_VERSION` in the script.
 
 ```bash
-cp .env.example .env
+node scripts/download-binaries.mjs
 ```
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `MAIN_VITE_DISCORD_CLIENT_ID` | Optional | Discord application client ID for Rich Presence. Get one at [discord.com/developers](https://discord.com/developers/applications). Without this, Discord RPC is silently disabled — the app still works fine. |
-| `MAIN_VITE_SPOTIFY_CLIENT_ID` | Optional | Spotify client ID for authenticated API access (higher rate limits). Without credentials, the app uses anonymous token access (SpotAPI approach) — works for most use cases. |
-| `MAIN_VITE_SPOTIFY_CLIENT_SECRET` | Optional | Spotify client secret. Required alongside `SPOTIFY_CLIENT_ID` for credential-based auth. |
+### What it downloads
 
-> **Spotify without credentials:** The downloader uses Spotify's anonymous `clienttoken.spotify.com` endpoint (the same approach as [SpotAPI by Aran404](https://github.com/Aran404/SpotAPI)) — no login, no OAuth, no credentials needed for basic use.
+| Platform | spotdl source | ffmpeg source |
+|---|---|---|
+| Windows x64 | GitHub releases | BtbN/FFmpeg-Builds (win64-gpl) |
+| macOS x64 | GitHub releases | evermeet.cx static build |
+| macOS arm64 | GitHub releases (same universal binary) | evermeet.cx arm64 static build |
+| Linux x64 | GitHub releases | BtbN/FFmpeg-Builds (linux64-gpl) |
+| Linux arm64 | GitHub releases | BtbN/FFmpeg-Builds (linuxarm64-gpl) |
+
+### Flags
+
+```bash
+# Only download for the platform you're building for right now
+node scripts/download-binaries.mjs --platform win32
+
+# Re-download even if files already exist
+node scripts/download-binaries.mjs --force
+
+# Combine
+node scripts/download-binaries.mjs --platform darwin-arm64 --force
+```
+
+### Troubleshooting binary downloads
+
+**ffmpeg zip extraction fails on Windows** — The script uses PowerShell's `ZipFile` class. If it fails, manually download `ffmpeg-master-latest-win64-gpl.zip` from https://github.com/BtbN/FFmpeg-Builds/releases/tag/latest, open it, and copy `ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe` to `resources/bin/win32/ffmpeg.exe`.
+
+**macOS Gatekeeper quarantine** — After downloading, macOS may quarantine the binaries. Clear the quarantine attribute:
+```bash
+xattr -d com.apple.quarantine resources/bin/darwin-arm64/spotdl
+xattr -d com.apple.quarantine resources/bin/darwin-arm64/ffmpeg
+xattr -d com.apple.quarantine resources/bin/darwin-x64/spotdl
+xattr -d com.apple.quarantine resources/bin/darwin-x64/ffmpeg
+```
+
+**Already have ffmpeg-static in node_modules** — The script detects this automatically and copies from there instead of downloading anything.
 
 ---
 
-## 4. Desktop (Electron)
-
-### Development (hot reload)
+## 3. Run in development mode
 
 ```bash
 npm run dev
 ```
 
-Opens Electron with hot reload for both main and renderer processes.
+This starts electron-vite in watch mode. The Electron window opens automatically. Hot module reload applies to the renderer; main process changes require a manual restart (Ctrl+C then `npm run dev` again, or use the reload button in the DevTools).
 
-### Production build
+### Dev-mode binary resolution
 
+In dev mode, `binaryManager.ts` resolves binaries from `<projectRoot>/resources/bin/<platform>/`. This is the same directory populated by `download-binaries.mjs`, so no extra setup is needed.
+
+---
+
+## 4. Build a distributable package
+
+The build scripts automatically run `npm run download-binaries` first, so you don't need to run step 2 manually if you're doing a fresh build.
+
+### Windows (NSIS installer, x64 + arm64)
 ```bash
-npm run build
+npm run build:win
+```
+Output: `dist/Nora v{version}-win-x64.exe` and `dist/Nora v{version}-win-arm64.exe`
+
+### Windows x64 only (faster)
+```bash
+npm run build:win-x64
 ```
 
-Output is in `dist/`. The installer for your platform will be in `dist/`:
-- **Windows:** `Nora Setup x.x.x.exe`
-- **macOS:** `Nora-x.x.x.dmg`
-- **Linux:** `Nora-x.x.x.AppImage` or `.deb`
+### macOS (DMG, x64 + arm64)
+```bash
+npm run build:mac
+```
+Output: `dist/Nora v{version}-mac-x64.dmg` and `dist/Nora v{version}-mac-arm64.dmg`
 
-### Build for a specific platform
+> **Note:** Building macOS packages on Windows produces the DMG but the app won't be notarised. For distribution, build on a Mac and set up Apple notarisation credentials in your environment.
+
+### macOS arm64 only
+```bash
+npm run build:mac-arm64
+```
+
+### Linux (AppImage + deb + rpm + snap)
+```bash
+npm run build:linux
+```
+
+### Unpackaged (for quick testing without an installer)
+```bash
+npm run build:unpack
+```
+Output: `dist/win-unpacked/` (or `dist/mac/`, `dist/linux-unpacked/`)
+
+---
+
+## 5. Type-check without building
 
 ```bash
-# Windows (from Windows or via Wine on macOS/Linux)
-npm run build -- --win
-
-# macOS (macOS only)
-npm run build -- --mac
-
-# Linux
-npm run build -- --linux
+npm run typecheck
 ```
 
 ---
 
-## 5. iOS (Capacitor)
+## 6. How spotdl + ffmpeg are embedded
 
-> **macOS only.** The iOS simulator and device builds require Xcode on macOS.
+At build time, `electron-builder.yml` copies the `resources/bin/<platform>/` directory alongside `app.asar` as `extraResources`. At runtime:
 
-### First-time setup
+- `src/main/binaryManager.ts` computes the correct platform key and returns the path inside `process.resourcesPath` (packaged) or `<projectRoot>/resources/bin/<platform>/` (dev).
+- `ensureSpotdl()` in `downloader.ts` calls `binaryManager.resolveSpotdl()` and throws immediately if the binary isn't present (no runtime download — it must be pre-bundled).
+- yt-dlp continues to be downloaded on first launch from GitHub into `app.getPath('userData')/bin/`, with `resources/bin/<platform>/yt-dlp[.exe]` checked first as an optional override.
 
-```bash
-# 1. Add the iOS platform (run once)
-npm run cap:add:ios
+### Binary directory layout
 
-# 2. Install CocoaPods dependencies (run from ios/ directory)
-cd ios/App && pod install && cd ../..
+```
+resources/
+  bin/
+    win32/
+      spotdl.exe
+      ffmpeg.exe
+      yt-dlp.exe       ← optional, overrides runtime download
+    darwin-x64/
+      spotdl
+      ffmpeg
+    darwin-arm64/
+      spotdl
+      ffmpeg
+    linux-x64/
+      spotdl
+      ffmpeg
+    linux-arm64/
+      spotdl
+      ffmpeg
 ```
 
-### Build and open in Xcode
-
-```bash
-# Builds the web assets with VITE_PLATFORM=ios (strips all download/plugin code)
-# then syncs to the iOS project
-npm run build:ios
-
-# Open Xcode
-npm run cap:ios
-```
-
-In Xcode:
-1. Select your target device or simulator in the toolbar
-2. Press **▶ Run** (or `Cmd+R`)
-
-### What the iOS build contains
-
-The `build:ios` command sets `VITE_PLATFORM=ios`, which causes the Vite build to:
-
-- **Completely remove** the Downloader plugin, DJ Mode, and Plugin Store via module alias stubs
-- **Remove** all `window.api` Electron IPC calls (replaced by the mobile API shim)
-- Set `window.__capacitorApi` as the API surface instead
-
-No download code, no plugin infrastructure, and no DJ code exists anywhere in the iOS bundle — not even as dead code. This is enforced at compile time via Vite aliases + tree-shaking, not runtime checks.
-
-### Live reload during development
-
-```bash
-# Start the Vite dev server
-npm run dev:mobile
-
-# In a separate terminal, open Xcode
-npm run cap:ios
-```
-
-Then in `capacitor.config.ts`, uncomment the `server.url` line and set it to your machine's LAN IP:
-
-```ts
-server: {
-  url: 'http://192.168.x.x:5173',
-}
-```
-
-Re-run `npx cap sync ios` after changing the config.
-
-### Signing & provisioning
-
-In Xcode → select the `App` target → **Signing & Capabilities**:
-1. Select your Apple Developer Team
-2. Set a unique Bundle Identifier (must match `capacitor.config.ts` → `appId`)
-3. Xcode will manage provisioning profiles automatically for simulator builds
-
-For App Store distribution, follow Apple's standard archiving and submission process.
+This directory is listed in `.gitignore` — binaries are not committed to the repo.
 
 ---
 
-## 6. Android (Capacitor)
+## 7. Updating spotdl
 
-### First-time setup
-
-```bash
-# Add the Android platform (run once)
-npm run cap:add:android
-```
-
-### Build and open in Android Studio
-
-```bash
-# Builds web assets with VITE_PLATFORM=android and syncs to Android project
-npm run build:android
-
-# Open Android Studio
-npm run cap:android
-```
-
-In Android Studio:
-1. Wait for Gradle sync to complete
-2. Select a device or emulator from the toolbar
-3. Press **▶ Run** (or `Shift+F10`)
-
-### Live reload
-
-```bash
-npm run dev:mobile
-# Uncomment server.url in capacitor.config.ts with your LAN IP
-npx cap sync android
-npm run cap:android
-```
-
-### Signing for release
-
-In Android Studio → **Build → Generate Signed Bundle / APK**, follow the wizard to create or select a keystore.
+1. Check the latest release at https://github.com/spotDL/spotify-downloader/releases
+2. Update `SPOTDL_VERSION` in `scripts/download-binaries.mjs`
+3. Re-run `node scripts/download-binaries.mjs --force`
+4. Rebuild the app
 
 ---
 
-## 7. Plugin System
+## 8. Common issues
 
-Plugins are located in `src/renderer/src/plugins/`. The built-in plugins (Downloader, DJ Mode) cannot be uninstalled but can be disabled from the Plugins page in the sidebar.
+**`spotdl binary not found` error at runtime** — You skipped step 2. Run `node scripts/download-binaries.mjs --platform win32` (or your platform), then restart the app.
 
-### Adding an official plugin
+**`Error: [vite]: Rolldown failed to resolve import "puppeteer-extra"`** — You still have `puppeteer-extra` listed as a dependency in `package.json`. Remove it and run `npm install` again. The `spotifyScraper.ts` file uses `new Function('m', 'return import(m)')` to hide these imports from the bundler.
 
-1. Add a `NPluginManifest` entry to `OFFICIAL_STORE_PLUGINS` in `src/renderer/src/plugins/registry.ts`
-2. Create the component(s) and route(s) under `src/renderer/src/routes/main-player/`
-3. Add the route to `routeTree.gen.ts` following the existing pattern
-4. Guard any Electron IPC calls behind `IS_ELECTRON` from `src/renderer/src/platform.ts`
+**spotdl fails with `yt-dlp not found`** — spotdl v4.5.0 requires yt-dlp. The bundled spotdl binary includes its own yt-dlp, but if it doesn't: run `resources/bin/<platform>/spotdl --download-yt-dlp` once from the command line to let spotdl download it into its own directory.
 
-### Platform guards
+**spotdl fails with `Deno not found` (v4.5.0+)** — Some YouTube videos now require a JavaScript runtime. Run `resources/bin/<platform>/spotdl --download-deno` once to let spotdl self-install Deno alongside itself. This is a one-time operation.
 
-```ts
-import { IS_ELECTRON, IS_IOS, SUPPORTS_PLUGINS } from '../platform';
-
-// Only runs on desktop
-if (IS_ELECTRON) {
-  window.api.someElectronThing();
-}
-
-// True on both Electron and Android; false on iOS
-if (SUPPORTS_PLUGINS) {
-  // show plugin UI
-}
-```
-
----
-
-## 8. Troubleshooting
-
-### `npm install` fails with `ERESOLVE`
-Run with `--legacy-peer-deps`:
-```bash
-npm install --legacy-peer-deps
-```
-
-### yt-dlp download fails on first launch
-Check your internet connection. yt-dlp is fetched from GitHub Releases. If you're behind a proxy, set `HTTPS_PROXY` in your environment before launching the app.
-
-### Discord RPC not working
-- Ensure `MAIN_VITE_DISCORD_CLIENT_ID` is set in your `.env`
-- Ensure Discord is running on the same machine
-- The app retries the connection every 30 seconds — if Discord starts after Nora, it will connect automatically
-
-### Spotify searches return errors
-The anonymous token path (SpotAPI approach) uses Spotify's internal endpoints. If it fails:
-- Add `MAIN_VITE_SPOTIFY_CLIENT_ID` + `MAIN_VITE_SPOTIFY_CLIENT_SECRET` to `.env` for authenticated access
-- Get credentials at [developer.spotify.com](https://developer.spotify.com/dashboard)
-
-### iOS build: `pod install` fails
-```bash
-sudo gem update cocoapods
-cd ios/App && pod repo update && pod install
-```
-
-### iOS build: app crashes immediately
-- Check the Xcode console for the error
-- Ensure `capacitor.config.ts` → `server.url` is commented out for production builds
-- Verify the Bundle ID in Xcode matches `appId` in `capacitor.config.ts`
-
-### Android: Gradle sync fails
-- In Android Studio: **File → Invalidate Caches / Restart**
-- Ensure JDK 17 is set: **File → Project Structure → SDK Location → JDK Location**
-
-
-### `Can't find meta/_journal.json` on launch
-
-This means the app can't locate the database migration files. It happens when running `npm run dev` for the first time after a fresh clone (the `out/` folder doesn't exist yet).
-
-**Fix:** This is resolved automatically in this version — `db.ts` now uses `app.getAppPath()` to find migrations relative to the project root in dev mode and relative to `app.asar.unpacked/` in production. No manual action needed.
-
-If you still see it after pulling this version:
-```bash
-# Make sure you have the latest code then reinstall
-npm install
-npm run dev
-```
-
-If it persists, the `resources/drizzle/meta/_journal.json` file may be missing from the repo:
-```bash
-ls resources/drizzle/meta/
-# Should show: 0000_snapshot.json  0001_snapshot.json  0002_snapshot.json  _journal.json
-```
-
-### Songs downloaded by the plugin not appearing in library
-The downloader automatically calls `app/downloader/register-song` after each download, which parses the file into the library. If a song doesn't appear:
-1. Open **Settings → Storage** and click **Rescan library**
-2. Alternatively, add your download folder to **Settings → Music Folders**
-
+**Spotify URL preview (search panel) shows no results** — This uses `spotifyScraper.ts` (not spotdl), which falls back through credential → clienttoken approaches. Check your Spotify API credentials in Settings if you need richer metadata in the preview panel.

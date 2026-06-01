@@ -268,11 +268,13 @@ async function getTokenWithCredentials(clientId: string, clientSecret: string): 
 
 /** Method 2: Puppeteer stealth token interception */
 async function getTokenViaPuppeteer(): Promise<string> {
-  // Dynamic import so puppeteer-extra is truly optional (not in main bundle)
-  const puppeteerExtra = await import('puppeteer-extra').catch(() => null);
+  // Dynamic import hidden from bundler so the removed package doesn't cause
+  // a build error — the import string is evaluated at runtime only.
+  const _dynImport = new Function('m', 'return import(m)');
+  const puppeteerExtra = await _dynImport('puppeteer-extra').catch(() => null);
   if (!puppeteerExtra) throw new Error('puppeteer-extra not available');
 
-  const _stealthModule: any = await import('puppeteer-extra-plugin-stealth').catch(() => null);
+  const _stealthModule: any = await _dynImport('puppeteer-extra-plugin-stealth').catch(() => null);
   if (_stealthModule) {
     const stealth = typeof _stealthModule === 'function'
       ? _stealthModule()
@@ -434,12 +436,14 @@ async function spotifyGet(endpoint: string, retryOn401 = true): Promise<any> {
 }
 
 async function createSpotifyBrowserPage() {
-  const puppeteerExtraModule = await import('puppeteer-extra').catch(() => null);
+  // Bundler-opaque dynamic imports — Rolldown/Vite cannot statically resolve these.
+  const _dynImport = new Function('m', 'return import(m)');
+  const puppeteerExtraModule = await _dynImport('puppeteer-extra').catch(() => null);
   if (!puppeteerExtraModule) {
     throw new Error('puppeteer-extra not available');
   }
   const puppeteerExtra = puppeteerExtraModule.default ?? puppeteerExtraModule;
-  const stealthPluginModule = await import('puppeteer-extra-plugin-stealth').catch(() => null);
+  const stealthPluginModule = await _dynImport('puppeteer-extra-plugin-stealth').catch(() => null);
   const stealthPlugin = stealthPluginModule?.default ?? stealthPluginModule;
   if (stealthPlugin) {
     const stealth = typeof stealthPlugin === 'function'

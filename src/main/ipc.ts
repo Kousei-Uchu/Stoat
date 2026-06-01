@@ -116,6 +116,7 @@ import {
   startDownload,
   search as downloaderSearch,
   getYtdlpStatus,
+  getSpotdlStatus,
   DOWNLOAD_FORMATS,
   type DownloadOptions,
 } from './downloader';
@@ -391,6 +392,7 @@ export function initializeIPC(mainWindow: BrowserWindow, abortSignal: AbortSigna
     ipcMain.handle('app/downloader/search', (_, query: string) => downloaderSearch(query));
 
     ipcMain.handle('app/downloader/ytdlp-status', () => getYtdlpStatus());
+    ipcMain.handle('app/downloader/spotdl-status', () => getSpotdlStatus());
 
     ipcMain.handle('app/downloader/formats', () => DOWNLOAD_FORMATS);
 

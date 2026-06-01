@@ -12,3 +12,5 @@ coverage/
 *.zip
 exampleSpotifyScraping.js
 ios/
+# Pre-built binaries (populated by scripts/download-binaries.mjs)
+resources/bin/

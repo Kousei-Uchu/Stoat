@@ -7,9 +7,13 @@
  * Search uses YouTube's internal InnerTube API directly from the main process
  * (no CORS issues, no API key required).
  *
- * Spotify URL support: resolves Spotify tracks/albums/playlists/artists
- * via the public Spotify metadata API (no login required) then smart-matches
- * on YouTube Music using spotdl-style confidence scoring to avoid wrong versions.
+ * Spotify URL support: handled end-to-end by the bundled spotdl binary, which
+ * ships inside the app as an extraResource (no Python, no pip, no runtime
+ * install required). spotdl resolves Spotify metadata, finds the best YouTube
+ * match, downloads, and embeds tags in one call. The bundled ffmpeg binary is
+ * passed via --ffmpeg to ensure a consistent version across all platforms.
+ *
+ * Non-Spotify URLs (YouTube, SoundCloud, generic) continue to use yt-dlp.
  */
 
 import { app, BrowserWindow } from 'electron';
@@ -17,6 +21,7 @@ import { existsSync, mkdirSync, readdirSync, chmodSync, unlinkSync } from 'node:
 import { join, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import https from 'node:https';
+import { resolveSpotdl, resolveFfmpeg, resolveYtdlpFromResources } from './binaryManager';
 import {
   isSpotifyUrl,
   parseSpotifyUrl,
@@ -24,22 +29,9 @@ import {
   fetchSpotifyAlbumTracks,
   fetchSpotifyPlaylistTracks,
   fetchSpotifyArtistTracks,
-  embedSpotifyMetadataIntoFile,
 } from './spotifyScraper';
 import type { SpotifyTrackMeta as SpotifyScraperTrackMeta } from './spotifyScraper';
 
-const spotifyUrlInfo = require('spotify-url-info').default || require('spotify-url-info');
-
-const fetchFn = globalThis.fetch;
-
-const {
-  getData,
-  getPreview,
-  getTracks,
-  getDetails
-} = spotifyUrlInfo(fetchFn);
-
-const spotify = getData
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -116,14 +108,15 @@ export interface SearchResult {
   thumbnail: string;
   source: 'ytm' | 'yt' | 'spotify';
   url: string;
-  // Spotify enrichment
-  spotifyMeta?: SpotifyTrackMeta;
   matchScore?: number;
 }
 
+/** Minimal metadata needed to drive a spotdl batch download item. */
 export interface BatchDownloadItem {
-  url: string;
-  meta: SpotifyTrackMeta;
+  /** Spotify track/album/playlist/artist URL */
+  spotifyUrl: string;
+  /** Display name shown in the batch progress UI */
+  displayName: string;
 }
 
 export interface YtDlpStatus {
@@ -357,8 +350,17 @@ function streamToFile(url: string, destPath: string): Promise<void> {
 }
 
 export async function ensureYtdlp(): Promise<string> {
-  const binPath = getYtdlpPath();
+  // 1. Check extraResources first (pre-bundled binary)
+  const bundled = resolveYtdlpFromResources();
+  if (bundled.available) {
+    ytdlpBinaryPath = bundled.path;
+    ytdlpStatus = { ready: true, downloading: false, error: null };
+    sendYtdlpStatus();
+    return bundled.path;
+  }
 
+  // 2. Fall back to userData cache (downloaded at runtime)
+  const binPath = getYtdlpPath();
   if (existsSync(binPath)) {
     ytdlpBinaryPath = binPath;
     ytdlpStatus = { ready: true, downloading: false, error: null };
@@ -366,6 +368,7 @@ export async function ensureYtdlp(): Promise<string> {
     return binPath;
   }
 
+  // 3. Download from GitHub
   ytdlpStatus = { ready: false, downloading: true, error: null };
   sendYtdlpStatus();
 
@@ -389,6 +392,170 @@ export function getYtdlpStatus(): YtDlpStatus {
 
 export function setMainWindowRef(win: BrowserWindow) {
   mainWindowRef = win;
+}
+
+// ─── SpotDL binary management ────────────────────────────────────────────────
+
+export interface SpotdlStatus {
+  ready: boolean;
+  error: string | null;
+}
+
+let spotdlStatus: SpotdlStatus = { ready: false, error: null };
+
+function sendSpotdlStatus() {
+  mainWindowRef?.webContents.send('downloader/spotdl-status', spotdlStatus);
+}
+
+/**
+ * Verify the bundled spotdl binary is present and executable.
+ * Unlike yt-dlp, spotdl is never downloaded at runtime — it must be
+ * pre-bundled as an extraResource. Throws if unavailable.
+ */
+export function ensureSpotdl(): string {
+  const { path, available } = resolveSpotdl();
+  if (!available) {
+    const err = `spotdl binary not found at ${path}. Re-run scripts/download-binaries.mjs and rebuild.`;
+    spotdlStatus = { ready: false, error: err };
+    sendSpotdlStatus();
+    throw new Error(err);
+  }
+  spotdlStatus = { ready: true, error: null };
+  sendSpotdlStatus();
+  return path;
+}
+
+export function getSpotdlStatus(): SpotdlStatus {
+  return spotdlStatus;
+}
+
+// ─── SpotDL download ──────────────────────────────────────────────────────────
+
+/**
+ * Download a Spotify URL (track / album / playlist / artist) using the
+ * bundled spotdl binary. spotdl resolves metadata, matches on YouTube Music,
+ * downloads audio, and writes ID3 tags + artwork in a single subprocess call.
+ *
+ * @param task     Active DownloadTask (used for progress reporting).
+ * @param options  DownloadOptions — only `url`, `format`, `destination`, and
+ *                 `downloadLyrics` are consumed here; all metadata fields are
+ *                 handled internally by spotdl.
+ */
+async function runSpotdlDownload(
+  task: DownloadTask,
+  options: DownloadOptions
+): Promise<void> {
+  const spotdlPath = ensureSpotdl();
+  const ffmpegInfo = resolveFfmpeg();
+  const destination = task.destination;
+  const fmt = options.format && options.format in DOWNLOAD_FORMATS
+    ? DOWNLOAD_FORMATS[options.format]
+    : DOWNLOAD_FORMATS.mp3_320;
+
+  const args: string[] = [
+    'download',
+    options.url,
+    '--output', join(destination, '{artist} - {title}.{output-ext}'),
+    '--format', fmt.ext,
+    '--bitrate', fmt.ext === 'mp3' ? (
+      fmt === DOWNLOAD_FORMATS.mp3_128 ? '128k' :
+      fmt === DOWNLOAD_FORMATS.mp3_192 ? '192k' : '320k'
+    ) : 'auto',
+    '--save-file', join(destination, '.spotdl-cache.spotdl'),
+    '--log-level', 'INFO',
+  ];
+
+  if (ffmpegInfo.available) {
+    args.push('--ffmpeg', ffmpegInfo.path);
+  }
+
+  if (options.downloadLyrics !== false) {
+    args.push('--lyrics', 'synced');
+  }
+
+  const { spawn } = await import('node:child_process');
+  const proc = spawn(spotdlPath, args, { cwd: destination });
+  task.process = proc as any;
+  task.status = 'started';
+
+  let lastFile: string | null = null;
+  let stderrAccum = '';
+  let totalTracks = 1;
+  let doneTracks = 0;
+
+  // spotdl logs to stdout: "Downloaded "<title>" to "<path>""
+  // and progress bars to stderr — we parse both
+  proc.stdout.on('data', (chunk: Buffer) => {
+    const text = chunk.toString();
+
+    // Detect total track count for albums/playlists
+    const foundMatch = text.match(/Found\s+(\d+)\s+songs/i);
+    if (foundMatch) {
+      totalTracks = parseInt(foundMatch[1], 10);
+      task.batchTotal = totalTracks;
+      sendProgress(task, { event: 'batch_start', text: `Downloading ${totalTracks} tracks…`, batchTotal: totalTracks });
+    }
+
+    // Each successfully downloaded track
+    const dlMatch = text.match(/Downloaded\s+"([^"]+)"\s+to\s+"([^"]+)"/i);
+    if (dlMatch) {
+      doneTracks++;
+      lastFile = dlMatch[2].trim();
+      task.outputPath = lastFile;
+      task.batchCurrent = doneTracks;
+      task.progress = Math.round((doneTracks / totalTracks) * 100);
+      task.status = 'progress';
+      sendProgress(task, {
+        event: totalTracks > 1 ? 'batch_progress' : 'progress',
+        text: `Downloaded: ${dlMatch[1]}`,
+        outputPath: lastFile,
+        batchCurrent: doneTracks,
+        batchTotal: totalTracks,
+      });
+    }
+
+    // spotdl overall progress percentage
+    const pctMatch = text.match(/(\d+(?:\.\d+)?)\s*%/);
+    if (pctMatch && totalTracks === 1) {
+      task.progress = parseFloat(pctMatch[1]);
+      task.status = 'progress';
+      sendProgress(task, { event: 'progress', text: `${Math.round(task.progress)}%` });
+    }
+  });
+
+  proc.stderr.on('data', (chunk: Buffer) => {
+    const t = chunk.toString();
+    if (!t.toLowerCase().includes('warning')) stderrAccum += t;
+  });
+
+  // Replace the old proc closing promise block with this:
+await new Promise<void>((resolve, reject) => {
+  proc.on('close', (code: number | null) => {
+    if (code === 0 || proc.killed) {
+      resolve();
+    } else {
+      // Log the full raw error to the Electron main terminal immediately
+      console.error(`[App Binary Crash] spotdl exited with code ${code}`);
+      console.error(`[Raw Subprocess Stderr]:\n${stderrAccum}`);
+      
+      // Pass the entire accumulation up without slicing it blindly
+      reject(new Error(stderrAccum.trim() || `spotdl process exited with code ${code}`));
+    }
+  });
+
+  proc.on('error', (spawnError) => {
+    console.error(`[Process Spawn Error]:`, spawnError);
+    reject(spawnError);
+  });
+});
+
+  task.status = 'done';
+  task.progress = 100;
+  sendProgress(task, {
+    event: 'done',
+    text: totalTracks > 1 ? `Batch complete — ${doneTracks} downloaded` : 'Download complete',
+    outputPath: lastFile ?? undefined,
+  });
 }
 
 // ─── Smart YouTube Music matching (spotdl-style) ──────────────────────────────
@@ -1001,115 +1168,11 @@ export async function startDownload(
         // 'overwrite' or 'none' — proceed
       }
 
-      // ── Spotify URL handling ────────────────────────────────────────────
+      // ── Spotify URL handling — delegated entirely to spotdl ────────────
       if (isSpotifyUrl(options.url)) {
-        const parsed = parseSpotifyUrl(options.url)!;
-        console.debug('[Downloader] Spotify URL detected', options.url, parsed.type);
-
-        if (parsed.type === 'track') {
-          // Single track: resolve metadata, find best YT match, download
-          sendProgress(task, { event: 'resolving', text: 'Fetching Spotify metadata…' });
-          const scrapedMeta = await fetchSpotifyTrack(parsed.id);
-          const meta = normalizeSpotifyTrackMeta(scrapedMeta);
-          const match = await findBestYouTubeMatch(meta);
-          if (!match) throw new Error('Could not find a matching YouTube video for this track.');
-
-          await runYtdlpDownload(
-            task,
-            {
-              ...options,
-              url: match.url,
-              title: meta.title,
-              artist: meta.artist,
-              albumArtist: meta.albumArtist,
-              album: meta.album,
-              year: meta.year,
-              trackNumber: meta.trackNumber,
-              genres: meta.genres,
-              spotifyRawMeta: scrapedMeta,
-            },
-            binPath
-          );
-          return;
-        }
-
-        // Batch: album / playlist / artist
-        sendProgress(task, { event: 'resolving', text: 'Fetching Spotify track list…' });
-        let rawSpotifyTracks: any[] = [];
-        if (parsed.type === 'album') rawSpotifyTracks = await fetchSpotifyAlbumTracks(parsed.id);
-        else if (parsed.type === 'playlist') rawSpotifyTracks = await fetchSpotifyPlaylistTracks(parsed.id);
-        else if (parsed.type === 'artist') rawSpotifyTracks = await fetchSpotifyArtistTracks(parsed.id);
-
-        const tracks = rawSpotifyTracks.map(normalizeSpotifyTrackMeta);
-        if (tracks.length === 0) throw new Error('No tracks found for this Spotify URL.');
-
-        task.batchTotal = tracks.length;
-        task.batchCurrent = 0;
-        sendProgress(task, {
-          event: 'batch_start',
-          text: `Downloading ${tracks.length} tracks…`,
-          batchTotal: tracks.length,
-        });
-
-        let successCount = 0;
-        let failCount = 0;
-        for (let i = 0; i < tracks.length; i++) {
-          if (task.status === 'cancelled') break;
-          const meta = tracks[i];
-          task.batchCurrent = i + 1;
-          sendProgress(task, {
-            event: 'batch_progress',
-            text: `Track ${i + 1}/${tracks.length}: ${meta.title}`,
-            batchCurrent: i + 1,
-            batchTotal: tracks.length,
-          });
-          try {
-            const match = await findBestYouTubeMatch(meta);
-            if (!match) { failCount++; continue; }
-            // Create a sub-task context for the individual download progress
-            const subTask: DownloadTask = {
-              ...task,
-              url: match.url,
-              progress: 0,
-              status: 'pending',
-            };
-            await runYtdlpDownload(
-              subTask,
-              {
-                ...options,
-                url: match.url,
-                title: meta.title,
-                artist: meta.artist,
-                albumArtist: meta.albumArtist,
-                album: meta.album,
-                year: meta.year,
-                trackNumber: meta.trackNumber,
-                genres: meta.genres,
-                spotifyRawMeta: rawSpotifyTracks[i],
-                isBatch: true,
-                batchId: id,
-              },
-              binPath
-            );
-            successCount++;
-          } catch (err: any) {
-            failCount++;
-            sendProgress(task, {
-              event: 'batch_track_error',
-              text: `Failed: ${meta.title} — ${err?.message ?? 'unknown error'}`,
-              batchCurrent: i + 1,
-            });
-          }
-        }
-
-        task.status = 'done';
-        task.progress = 100;
-        sendProgress(task, {
-          event: 'done',
-          text: `Batch complete — ${successCount} downloaded, ${failCount} failed`,
-          batchSuccessCount: successCount,
-          batchFailCount: failCount,
-        });
+        console.debug('[Downloader] Spotify URL — handing off to spotdl', options.url);
+        sendProgress(task, { event: 'resolving', text: 'Starting spotdl…' });
+        await runSpotdlDownload(task, options);
         return;
       }
 

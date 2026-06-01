@@ -27,6 +27,32 @@ asarUnpack:
   - node_modules/sharp/**/*
   - node_modules/@img/**/*
 
+extraResources:
+  - from: resources/bin/win32
+    to: bin/win32
+    filter:
+      - '*.exe'
+  - from: resources/bin/darwin-x64
+    to: bin/darwin-x64
+    filter:
+      - spotdl
+      - ffmpeg
+  - from: resources/bin/darwin-arm64
+    to: bin/darwin-arm64
+    filter:
+      - spotdl
+      - ffmpeg
+  - from: resources/bin/linux-x64
+    to: bin/linux-x64
+    filter:
+      - spotdl
+      - ffmpeg
+  - from: resources/bin/linux-arm64
+    to: bin/linux-arm64
+    filter:
+      - spotdl
+      - ffmpeg
+
 fileAssociations:
   - ext: mp3
     icon: ./build/installer_assets/file_associated_icons/mp3.ico
