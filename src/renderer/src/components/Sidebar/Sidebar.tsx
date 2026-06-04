@@ -1,9 +1,9 @@
-import { SUPPORTS_PLUGINS } from '../../platform';
+import { IS_MOBILE, SUPPORTS_PLUGINS } from '../../platform';
 import { isPluginEnabled, PLUGIN_REGISTRY_CHANGED_EVENT } from '../../plugins/registry';
 import { store } from '@renderer/store/store';
 import { linkOptions } from '@tanstack/react-router';
 import { useStore } from '@tanstack/react-store';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import ErrorBoundary from '../ErrorBoundary';
@@ -11,6 +11,12 @@ import SideBarItem from './SideBarItem';
 
 const Sidebar = memo(() => {
   const bodyBackgroundImage = useStore(store, (state) => state.bodyBackgroundImage);
+  // On mobile the sidebar is icon-only and CSS :hover doesn't persist after a tap.
+  // We track an explicit expanded state so users can tap the rail to open/close it.
+  const [mobileExpanded, setMobileExpanded] = useState(false);
+  const toggleMobileExpanded = useCallback(() => {
+    if (IS_MOBILE) setMobileExpanded((prev) => !prev);
+  }, []);
 
   const { t } = useTranslation();
   const [downloadPluginEnabled, setDownloadPluginEnabled] = useState(
@@ -184,11 +190,14 @@ const Sidebar = memo(() => {
 
   return (
     <nav
+      onClick={toggleMobileExpanded}
       className={`side-bar relative z-20 order-1 !h-full w-[30%] !max-w-[18rem] grow rounded-tr-2xl transition-[width] ${
         bodyBackgroundImage
           ? 'bg-side-bar-background/50 dark:bg-dark-background-color-2/50 backdrop-blur-md'
           : 'bg-side-bar-background dark:bg-dark-background-color-2'
-      } delay-200 md:hover:w-60 lg:absolute lg:w-14 lg:hover:w-[30%] lg:hover:shadow-2xl`}
+      } delay-200 md:hover:w-60 lg:absolute lg:w-14 lg:hover:w-[30%] lg:hover:shadow-2xl ${
+        IS_MOBILE && mobileExpanded ? 'w-[70%]! max-w-[18rem]! shadow-2xl' : ''
+      }`}
     >
       <ErrorBoundary>
         <ul className="relative flex h-full! flex-col gap-1 overflow-x-hidden pt-4 pb-2">

@@ -536,3 +536,26 @@ input[type='checkbox']:checked ~ .checkmark .icon {
   backdrop-filter: blur(10px); /* apply the blur */
   pointer-events: none; /* make the overlay click-through */
 }
+
+/* ? MOBILE SAFE AREAS (Capacitor / iOS notch + home indicator) */
+/*
+  viewport-fit=cover is set in the mobile HTML entry so the WebView
+  extends edge-to-edge. We then pad the shell back in using the
+  env(safe-area-inset-*) variables so nothing important is obscured
+  by the Dynamic Island, status bar, or home indicator.
+
+  These rules only have an effect when the env() variables are non-zero,
+  i.e. on a real device or simulator — they are harmless on desktop.
+*/
+.title-bar-safe-area {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.song-controls-safe-area {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Hide Electron window-chrome buttons on mobile (Capacitor handles app lifecycle) */
+.mobile-platform #window-controls-container {
+  display: none !important;
+}

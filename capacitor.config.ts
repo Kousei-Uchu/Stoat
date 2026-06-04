@@ -5,7 +5,6 @@ const config: CapacitorConfig = {
   appName: 'Nora',
   // Points to the Vite renderer output (same build used by Electron)
   webDir: 'out/renderer-mobile',
-  bundledWebRuntime: false,
   server: {
     // Use the live dev server in development (remove for production)
     // url: 'http://192.168.x.x:5173',

@@ -21,12 +21,18 @@ export const supportedLanguagesDropdownOptions: DropdownOption<keyof typeof reso
   // { label: `Francais`, value: 'fr' },
 ];
 
-const { language } = await window.api.settings.getUserSettings();
+// window.api may not exist yet during mobile boot (shim attached by mobile/index.tsx).
+// Safely fall back to 'en' if unavailable — the app re-reads the setting after hydration.
+let initialLanguage = 'en';
+try {
+  const settings = await (window as any).api?.settings?.getUserSettings?.();
+  if (settings?.language) initialLanguage = settings.language;
+} catch { /* mobile / first load — default to English */ }
 
 // eslint-disable-next-line import/no-named-as-default-member
 i18n.use(initReactI18next).init({
   resources,
-  lng: language ?? 'en',
+  lng: initialLanguage,
   fallbackLng: 'en',
   interpolation: { escapeValue: false } // React is safe from xss attacks
 });

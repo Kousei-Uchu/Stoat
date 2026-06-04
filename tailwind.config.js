@@ -3,7 +3,7 @@
 // import * as colors from 'tailwindcss/colors';
 import plugin from 'tailwindcss/plugin';
 
-export const content = ['./src/renderer/index.html', './src/renderer/src/**/*.{js,jsx,ts,tsx,ejs}'];
+export const content = ['./src/renderer/index.html', './src/renderer/index.mobile.html', './src/renderer/src/**/*.{js,jsx,ts,tsx,ejs}'];
 export const darkMode = 'selector';
 export const theme = {
   screens: {

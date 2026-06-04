@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Nora</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: gap: capacitor://* http://localhost:* https://*; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://raw.githubusercontent.com capacitor://* http://localhost:*;">
+  </head>
+  <body>
+    <div id="root"></div>
+    <!--
+      Mobile entry: root is mobile-entry/, so ../src/mobile/index.tsx
+      resolves to src/renderer/src/mobile/index.tsx.
+      That file attaches window.__capacitorApi before importing index.tsx,
+      and vite.mobile.config.ts defines window.api = window.__capacitorApi ?? {}
+      so all shared window.api.* calls hit the mobile shim transparently.
+    -->
+    <script type="module" src="../src/mobile/index.tsx"></script>
+  </body>
+</html>

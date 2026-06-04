@@ -51,11 +51,16 @@ import { dispatch, store } from './store/store';
 // });
 // / / / / / / / /
 
-const updateNetworkStatus = () => window.api.settingsHelpers.networkStatusChange(navigator.onLine);
+const updateNetworkStatus = () =>
+  (window as any).api?.settingsHelpers?.networkStatusChange?.(navigator.onLine);
 
-updateNetworkStatus();
-window.addEventListener('online', updateNetworkStatus);
-window.addEventListener('offline', updateNetworkStatus);
+// Delay initial call until window.api is guaranteed to be attached (mobile shim
+// sets it synchronously, but module evaluation order can race on cold starts)
+if (typeof window !== 'undefined') {
+  updateNetworkStatus();
+  window.addEventListener('online', updateNetworkStatus);
+  window.addEventListener('offline', updateNetworkStatus);
+}
 
 // console.log('Command line args', window.api.properties.commandLineArgs);
 

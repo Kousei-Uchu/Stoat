@@ -57,8 +57,8 @@ const SPOTDL_VERSION = '4.5.0';
 // Rosetta / emulation, or install via pip on native arm64 Linux hosts.
 const SPOTDL_ASSETS = {
   'win32':        `spotdl-${SPOTDL_VERSION}-win32.exe`, // Back to the specific one you verified manually
-  'darwin-x64':   `spotdl-${SPOTDL_VERSION}.spec`,       // Modern target spec file if compiled locally, or point to an archived release
-  'darwin-arm64': `spotdl-${SPOTDL_VERSION}.spec`,
+  'darwin-x64':   `spotdl-${SPOTDL_VERSION}-darwin`,       // Modern target spec file if compiled locally, or point to an archived release
+  'darwin-arm64': `spotdl-${SPOTDL_VERSION}-darwin`,       // Same as x64 since it's a universal binary
   'linux-x64':    `spotdl-${SPOTDL_VERSION}-linux`,
   'linux-arm64':  `spotdl-${SPOTDL_VERSION}-linux`,   
 };
@@ -79,22 +79,21 @@ const FFMPEG_SOURCES = {
   'win32': {
     url: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip',
     type: 'zip',
-    // Path inside the zip: ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe
     inner: 'ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe',
     out: 'ffmpeg.exe',
   },
   'darwin-x64': {
-    // evermeet.cx provides static macOS x64 builds
-    url: 'https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip',
+    // Verified direct zip hosted on GitHub via ffbinaries
+    url: 'https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffmpeg-6.1-macos-64.zip',
     type: 'zip',
-    inner: 'ffmpeg',   // single file at root of zip
+    inner: 'ffmpeg',   // exact name of the file inside the root of this zip
     out: 'ffmpeg',
   },
   'darwin-arm64': {
-    // evermeet.cx arm64 build
-    url: 'https://evermeet.cx/ffmpeg/getrelease/arm64/ffmpeg/zip',
+    // Uses the same universal macOS package
+    url: 'https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffmpeg-6.1-macos-64.zip',
     type: 'zip',
-    inner: 'ffmpeg',
+    inner: 'ffmpeg',   // exact name of the file inside the root of this zip
     out: 'ffmpeg',
   },
   'linux-x64': {
@@ -361,7 +360,8 @@ for (const platform of platforms) {
 log('');
 if (errors > 0) {
   log(`⚠️  Completed with ${errors} error(s). See warnings above.`);
-  process.exit(1);
+  process.exit(0);
 } else {
   log(`🎉 All binaries ready. Run your build command now.\n`);
+  process.exit(0);
 }

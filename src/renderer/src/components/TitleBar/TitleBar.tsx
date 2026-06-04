@@ -23,7 +23,7 @@ const TitleBar = memo(() => {
   return (
     <header
       id="title-bar"
-      className={`text-font-color-black dark:text-font-color-white relative top-0 z-40 grid h-10 w-full grid-cols-[clamp(10rem,30%,18rem)_1fr_auto] items-center justify-between overflow-hidden bg-transparent transition-opacity ${
+      className={`title-bar-safe-area text-font-color-black dark:text-font-color-white relative top-0 z-40 grid h-10 w-full grid-cols-[clamp(10rem,30%,18rem)_1fr_auto] items-center justify-between overflow-hidden bg-transparent transition-opacity ${
         bodyBackgroundImage &&
         'bg-background-color-1/50 text-font-color-white! dark:bg-dark-background-color-1/70 backdrop-blur-md'
       }`}

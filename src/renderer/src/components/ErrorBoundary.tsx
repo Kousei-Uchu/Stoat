@@ -5,8 +5,6 @@ import BugImg from '../assets/images/svg/Bug Fixed_Monochromatic.svg';
 import log from '../utils/log';
 import Button from './Button';
 
-const { isInDevelopment } = window.api.properties;
-
 interface ErrorBoundaryProps {
   children: ReactNode;
 }
@@ -19,6 +17,8 @@ interface ErrorBoundaryStates {
 const ErrorBoundaryFallbackUi = (props: ErrorBoundaryStates) => {
   const { t } = useTranslation();
   const { error, errorInfo } = props;
+  // Safe read — window.api may be undefined during mobile boot before the shim attaches
+  const isInDevelopment = (window as any).api?.properties?.isInDevelopment ?? import.meta.env.DEV;
 
   return (
     <div className="text-font-color-black dark:text-font-color-white flex h-full w-full flex-col items-center justify-center overflow-x-hidden">
@@ -43,7 +43,7 @@ const ErrorBoundaryFallbackUi = (props: ErrorBoundaryStates) => {
           className="bg-background-color-3! text-font-color-black hover:border-background-color-3 dark:bg-dark-background-color-3! dark:text-font-color-black! dark:hover:border-background-color-3 mt-4 mr-0! text-sm"
           label={t('common.restartApp')}
           iconName="restart_alt"
-          clickHandler={() => window.api.appControls.restartRenderer('error')}
+          clickHandler={() => (window as any).api?.appControls?.restartRenderer?.('error')}
         />
       </div>
     </div>

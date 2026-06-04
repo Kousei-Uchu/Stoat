@@ -25,7 +25,10 @@ const log = (
     }
   }
 
-  window.api.log.sendLogs(message, parsedData, logType, forceWindowRestart, forceMainRestart);
+  // Guard with optional chaining: on mobile the shim may not be attached yet
+  // during very early module evaluation (before mobile/index.tsx has run).
+  // The console.* calls above already captured the message, so this is safe to skip.
+  (window as any).api?.log?.sendLogs?.(message, parsedData, logType, forceWindowRestart, forceMainRestart);
 };
 
 export default log;
